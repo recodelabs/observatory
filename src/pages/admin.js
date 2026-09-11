@@ -34,11 +34,7 @@ admin.get("/admin", async (c) => {
     ].join("");
     return `<tr><td>${escape(u.email)}<br><span class="muted">${escape(u.name)}</span></td><td>${escape(u.status)}</td><td>${escape(u.role)}</td><td>${fmt(u.createdAt)}</td><td>${fmt(u.lastSignIn)}</td><td>${actions}</td></tr>`;
   }).join("");
-  // The csrf token also needs to be on the page when every row's own action buttons are
-  // hidden (e.g. the admin viewing a table where they're the only, self, row) — a
-  // standalone field keeps a token available independent of which per-row buttons render.
   const body = `<table><thead><tr><th>User</th><th>Status</th><th>Role</th><th>Created</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-<input type="hidden" name="csrf" value="${csrf}">
 <p class="muted">Signed in as ${escape(s.user.email)} · <a href="/">Site</a></p><form method="post" action="/_door/signout"><button class="quiet">Sign out</button></form>`;
   return html(c, page({config, title: "Users", body, wide: true, message: c.req.query("ok") ? "Done." : null}));
 });
@@ -49,8 +45,11 @@ const ACTIONS = {
 };
 
 admin.post("/admin/:action", async (c) => {
-  const spec = ACTIONS[c.req.param("action")];
-  if (!spec) return c.text("Not found", 404);
+  const action = c.req.param("action");
+  // ACTIONS[action] would also resolve inherited Object.prototype properties (e.g.
+  // "constructor", "toString") to a truthy, spec-shaped-enough value; require an own key.
+  if (!Object.hasOwn(ACTIONS, action)) return c.text("Not found", 404);
+  const spec = ACTIONS[action];
   const s = c.get("session");
   const form = await c.req.parseBody();
   if (!(await checkCsrf(c.env.BETTER_AUTH_SECRET, s.session.token, form.csrf))) return c.text("Bad token", 403);
