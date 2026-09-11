@@ -9,5 +9,7 @@
     {"binding": "DB", "database_name": "doorman", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations"}
   ],
   "r2_buckets": [{"binding": "SITE", "bucket_name": "icr"}]
-  // routes and account_id are added per deployment in Task 11
+  // Production adds, per deployment (see README "Deploying"):
+  // "account_id": "<cloudflare account id>",
+  // "routes": [{"pattern": "<hostname>", "custom_domain": true}]
 }
