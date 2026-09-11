@@ -22,4 +22,8 @@ describe("sendMail", () => {
     const fetch = async () => new Response("nope", {status: 422});
     await expect(sendMail({RESEND_API_KEY: "re_x"}, config, {to: "a@b", subject: "S", text: "hi"}, {fetch})).rejects.toBeInstanceOf(MailError);
   });
+  it("throws MailError when fetch itself throws", async () => {
+    const fetch = async () => { throw new TypeError("network down"); };
+    await expect(sendMail({RESEND_API_KEY: "re_x"}, config, {to: "a@b", subject: "S", text: "hi"}, {fetch})).rejects.toBeInstanceOf(MailError);
+  });
 });
