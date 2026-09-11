@@ -61,3 +61,14 @@ export async function setStatus(email, status) {
 // real fetch()), so unlike exports.default.fetch there's no need for `redirect: "manual"`.
 export const get = (path, headers = {}) => app.fetch(new Request("http://example.com" + path, {headers}), env);
 export const NAV = {accept: "text/html,application/xhtml+xml"};
+
+// Posts a form (application/x-www-form-urlencoded) through app.fetch — see the note above
+// on why this goes through app.fetch rather than exports.default.fetch, and why there's no
+// redirect: "manual" (app.fetch never follows redirects to begin with). Every call gets a
+// fresh cf-connecting-ip so form posts don't trip Better Auth's per-IP rate limits when a
+// test file posts many of them against shared D1 storage.
+export const post = (path, fields = {}, headers = {}) => app.fetch(new Request("http://example.com" + path, {
+  method: "POST",
+  headers: {"content-type": "application/x-www-form-urlencoded", origin: "http://example.com", "cf-connecting-ip": nextIp(), ...headers},
+  body: new URLSearchParams(fields).toString()
+}), env);
