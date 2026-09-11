@@ -44,13 +44,20 @@ export async function setStatus(email, status) {
 }
 
 // Calls the Hono app directly (app.fetch(request, env)) rather than going through
-// exports.default.fetch (the Fetcher/service-binding entry point). The two are equivalent
-// for a single request, but exports.default.fetch routes every call through a shared RPC
-// channel in @cloudflare/vitest-plugin's Workers pool — and empirically, a response with a
-// zero-length body (our 401/403 "status" responses; see gate.js) sent over that channel
-// blocks the *next* request that writes to D1 (e.g. a later signUp/signIn) until it times
-// out. Calling app.fetch directly bypasses that channel and doesn't reproduce the hang. It
-// also means redirects are never auto-followed (app.fetch just returns the 3xx Response),
-// so unlike a real fetch() there's no need for `redirect: "manual"` here.
+// exports.default.fetch (the Fetcher/service-binding entry point). exports.default.fetch
+// routes every call through a shared RPC channel in @cloudflare/vitest-plugin's Workers
+// pool, and empirically: any *second-or-later* exports.default.fetch call in a test file
+// that touches D1 hangs, regardless of what the first call did or returned. So — do not
+// call exports.default.fetch more than once per test file when any of those calls touches
+// D1; go through app.fetch(request, env) via these helpers instead.
+//
+// Two accepted tradeoffs from that: (a) most requests in this suite no longer go through
+// the actual `export default {fetch}` entrypoint the Worker ships — only the "non-GET to
+// site paths is 405" test in routes.test.js still calls exports.default.fetch, since it's
+// the last request in its file; (b) app.fetch is called with no `ctx` argument, so
+// `ctx.waitUntil` is unavailable to code under test here (nothing in this app uses it yet).
+//
+// A side effect: app.fetch never auto-follows redirects (it's a direct handler call, not a
+// real fetch()), so unlike exports.default.fetch there's no need for `redirect: "manual"`.
 export const get = (path, headers = {}) => app.fetch(new Request("http://example.com" + path, {headers}), env);
 export const NAV = {accept: "text/html,application/xhtml+xml"};
