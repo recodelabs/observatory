@@ -72,3 +72,35 @@ export function createAuth(env, config) {
   });
   return Object.assign(auth, {db});
 }
+
+const FORWARDED_HEADERS = [
+  "cookie", "origin", "referer", "user-agent", "accept-language", "cf-connecting-ip",
+  "sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-user"
+];
+
+/**
+ * Call one of Better Auth's own endpoints through `auth.handler`, the way a browser would.
+ * Server-side `auth.api.*` calls skip the router, and with it the rate limiter and the
+ * origin checks — doorman's HTML forms go through here instead so a form post is limited
+ * exactly like a JSON post to the same endpoint. Headers the router cares about (client
+ * IP for the limiter, origin/fetch-metadata for CSRF, cookie for the session) are carried
+ * over from the incoming request; the URL is built on BASE_URL so it stays a trusted origin.
+ */
+export function callAuth(auth, env, request, path, body) {
+  const headers = new Headers({"content-type": "application/json"});
+  for (const name of FORWARDED_HEADERS) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return auth.handler(new Request(new URL(path, env.BASE_URL), {method: "POST", headers, body: JSON.stringify(body)}));
+}
+
+/** The `message` from a Better Auth JSON error body, or null. */
+export async function authErrorMessage(res) {
+  try {
+    const body = await res.json();
+    return typeof body?.message === "string" && body.message ? body.message : null;
+  } catch {
+    return null;
+  }
+}

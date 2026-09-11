@@ -18,8 +18,21 @@ export function html(c, markup, status = 200, extraHeaders = {}) {
   return new Response(markup, {status, headers: {"content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...extraHeaders}});
 }
 
+/**
+ * A `next` we are willing to redirect to: a path on this origin and nothing else.
+ * Rejects protocol-relative (`//evil.com`) and backslash (`/\evil.com`, which browsers
+ * normalise to `//evil.com`) forms, encoded slashes, control characters, and anything
+ * that parses to a different origin.
+ */
 export function safeNext(next) {
-  return typeof next === "string" && /^\/(?!\/)/.test(next) ? next : "/";
+  if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//")
+      || next.includes("\\") || /[\u0000-\u001f\u007f-\u009f]/.test(next)
+      || /%2[fF]|%5[cC]/.test(next.split(/[?#]/)[0])) return "/";
+  try {
+    return new URL(next, "https://doorman.invalid").origin === "https://doorman.invalid" ? next : "/";
+  } catch {
+    return "/";
+  }
 }
 
 /** Copy every set-cookie from Better Auth's response headers onto our redirect. */

@@ -1,5 +1,5 @@
 import {env} from "cloudflare:workers";
-import {beforeAll, describe, it, expect} from "vitest";
+import {beforeAll, describe, it, expect, vi} from "vitest";
 import {putSite, signUp, setStatus, get, post, NAV} from "./helpers.js";
 
 beforeAll(() => putSite(env, {"index.html": "<h1>home</h1>"}));
@@ -38,6 +38,27 @@ describe("login page", () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toMatch(/Check your email/);
   });
+  it("magic link for an unknown email mails nobody but says the same thing", async () => {
+    const lines = [];
+    const log = vi.spyOn(console, "log").mockImplementation((line) => void lines.push(String(line)));
+    let res;
+    try {
+      res = await post("/_door/magic", {email: "stranger@elsewhere.test", next: "/"});
+    } finally {
+      log.mockRestore();
+    }
+    expect(res.status).toBe(200);
+    expect(await res.text()).toMatch(/Check your email/);
+    expect(lines.join("\n")).not.toMatch(/stranger@elsewhere\.test/);
+  });
+  it.each([["//evil.com"], ["/\\evil.com"], ["/%5Cevil.com"], ["/two\r\nlines"]])(
+    "refuses %j as next and redirects to /", async (next) => {
+      const email = `next${Math.random().toString(36).slice(2, 8)}@example.org`;
+      await signUp(email);
+      const res = await post("/_door/login", {email, password: "correct horse battery", next});
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe("/");
+    });
   it("signed-in active user visiting login is sent to next", async () => {
     const cookie = await signUp("d@example.org"); await setStatus("d@example.org", "active");
     const res = await get("/_door/login?next=%2Fabout", {...NAV, cookie});

@@ -15,7 +15,23 @@ function configFor(env) {
   return baseConfig;
 }
 
+/** Local hostnames `wrangler dev` answers on; never redirected to the canonical host. */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
+
 export const app = new Hono();
+
+// Canonical host: doorman can hold several routes (e.g. an old `monitor.*` hostname), but
+// cookies and trusted origins only work on BASE_URL's host, so everything else is sent
+// there first, path and query intact.
+app.use("*", async (c, next) => {
+  const url = new URL(c.req.url);
+  const canonical = new URL(c.env.BASE_URL).hostname;
+  if (url.hostname !== canonical && !LOCAL_HOSTS.has(url.hostname)) {
+    const to = new URL(url.pathname + url.search, c.env.BASE_URL);
+    return new Response(null, {status: 301, headers: {location: to.toString()}});
+  }
+  await next();
+});
 
 app.use("*", async (c, next) => {
   const config = configFor(c.env);
@@ -41,7 +57,12 @@ app.route("/_door", doorPages);
 app.all("*", async (c) => {
   const request = c.req.raw;
   if (request.method !== "GET" && request.method !== "HEAD") return c.text("Method not allowed", 405);
-  const path = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, "");
+  let path;
+  try {
+    path = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, "");
+  } catch {
+    return c.text("Bad request", 400); // malformed percent-escape in the path
+  }
   const access = c.get("resolveAccess")(path);
   let user = null;
   if (access === "protected") {
@@ -59,7 +80,8 @@ app.all("*", async (c) => {
     case "status": return new Response(null, {status: d.status, headers: {"cache-control": "no-store"}});
     case "notfound": {
       const nf = await c.env.SITE.get(`_site/${config.site.name}/404.html`);
-      return new Response(nf ? nf.body : "Not found", {status: 404, headers: {"content-type": "text/html; charset=utf-8", "cache-control": "no-store"}});
+      const body = request.method === "HEAD" ? null : nf ? nf.body : "Not found";
+      return new Response(body, {status: 404, headers: {"content-type": "text/html; charset=utf-8", "cache-control": "no-store"}});
     }
     default: return serveFromR2(c.env.SITE, `_site/${config.site.name}/`, request, path, access);
   }

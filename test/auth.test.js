@@ -69,7 +69,9 @@ describe("createAuth", () => {
       }));
       expect(res.status).toBeLessThan(500);
       // Better Auth 1.7.4 answers 200 and still sends the link (it does not leak whether the
-      // address is known); disableSignUp is enforced when the link is followed.
+      // address is known); disableSignUp is enforced when the link is followed. doorman's
+      // /_door/magic form never reaches this endpoint for an unknown address — it looks the
+      // user up first (src/pages/login.js) so the form cannot be used to mail strangers.
       const url = mailed.join("\n").match(/http:\/\/example\.com\/auth\/magic-link\/verify\S+/)?.[0];
       if (url) {
         const verified = await auth.handler(new Request(url, {headers: {origin: "http://example.com", "cf-connecting-ip": "127.0.0.1"}}));

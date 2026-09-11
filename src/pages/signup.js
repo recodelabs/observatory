@@ -1,5 +1,5 @@
 import {Hono} from "hono";
-import {APIError} from "better-auth/api";
+import {callAuth, authErrorMessage} from "../auth.js";
 import {page, html, escape, withCookies} from "./layout.js";
 
 export const signup = new Hono();
@@ -24,16 +24,14 @@ signup.post("/signup", async (c) => {
   const email = String(form.email || "").trim().toLowerCase();
   const name = String(form.name || "").trim() || email;
   const config = c.get("config");
-  try {
-    const {headers} = await c.get("auth").api.signUpEmail({
-      body: {email, name, password: String(form.password || "")}, headers: c.req.raw.headers, returnHeaders: true
-    });
-    return withCookies(c.redirect("/_door/pending", 302), headers);
-  } catch (err) {
-    if (err instanceof APIError) {
-      const msg = /exist/i.test(err.message) ? "An account with that email already exists. Try signing in." : err.message;
-      return html(c, signupForm({config, email, name, error: msg}));
-    }
-    throw err;
+  const res = await callAuth(c.get("auth"), c.env, c.req.raw, "/auth/sign-up/email", {email, name, password: String(form.password || "")});
+  if (res.status === 200) return withCookies(c.redirect("/_door/pending", 302), res.headers);
+  let error;
+  if (res.status === 429) error = "Too many attempts, try again in a minute.";
+  else if (res.status === 403) error = "Sign-up is misconfigured for this hostname, contact the administrator.";
+  else {
+    const message = (await authErrorMessage(res)) || "Could not create the account, try again.";
+    error = /exist/i.test(message) ? "An account with that email already exists. Try signing in." : message;
   }
+  return html(c, signupForm({config, email, name, error}));
 });

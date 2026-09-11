@@ -1,6 +1,9 @@
 import {Hono} from "hono";
-import {APIError} from "better-auth/api";
+import {callAuth, authErrorMessage} from "../auth.js";
 import {page, html, escape, safeNext, withCookies} from "./layout.js";
+
+const RATE_LIMITED = "Too many attempts, try again in a minute.";
+const MISCONFIGURED = "Sign-in is misconfigured for this hostname, contact the administrator.";
 
 export const login = new Hono();
 
@@ -32,15 +35,15 @@ login.post("/login", async (c) => {
   const form = await c.req.parseBody();
   const next = safeNext(form.next);
   const email = String(form.email || "").trim().toLowerCase();
-  try {
-    const {headers} = await c.get("auth").api.signInEmail({
-      body: {email, password: String(form.password || "")}, headers: c.req.raw.headers, returnHeaders: true
-    });
-    return withCookies(c.redirect(next, 302), headers);
-  } catch (err) {
-    if (err instanceof APIError) return html(c, loginForm({config: c.get("config"), next, email, error: "Invalid email or password."}));
-    throw err;
-  }
+  const config = c.get("config");
+  const res = await callAuth(c.get("auth"), c.env, c.req.raw, "/auth/sign-in/email", {email, password: String(form.password || "")});
+  if (res.status === 200) return withCookies(c.redirect(next, 302), res.headers);
+  let error;
+  if (res.status === 429) error = RATE_LIMITED;
+  else if (res.status === 403) error = MISCONFIGURED;
+  else if (res.status === 400 || res.status === 401) error = "Invalid email or password.";
+  else error = (await authErrorMessage(res)) || "Sign-in failed, try again.";
+  return html(c, loginForm({config, next, email, error}));
 });
 
 login.post("/magic", async (c) => {
@@ -49,10 +52,11 @@ login.post("/magic", async (c) => {
   const email = String(form.email || "").trim().toLowerCase();
   const config = c.get("config");
   if (!email) return html(c, loginForm({config, next, error: "Enter your email first."}));
-  try {
-    await c.get("auth").api.signInMagicLink({body: {email, callbackURL: next}, headers: c.req.raw.headers});
-  } catch (err) {
-    if (!(err instanceof APIError)) throw err; // unknown email etc. → same message, no enumeration
-  }
+  const auth = c.get("auth");
+  // Only ask Better Auth to send when the address actually has an account: the magic-link
+  // endpoint mails whatever it is given, which would turn this form into an open relay for
+  // one fixed message. The answer below is the same either way, so nothing is enumerable.
+  const known = await auth.db.selectFrom("user").select("id").where("email", "=", email).executeTakeFirst();
+  if (known) await callAuth(auth, c.env, c.req.raw, "/auth/sign-in/magic-link", {email, callbackURL: next});
   return html(c, page({config, title: "Check your email", body: `<p>If <strong>${escape(email)}</strong> has an account, a sign-in link is on its way. It expires in 5 minutes.</p><p><a href="/_door/login">Back</a></p>`}));
 });

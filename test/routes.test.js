@@ -1,5 +1,6 @@
 import {env, exports} from "cloudflare:workers";
 import {beforeAll, describe, it, expect} from "vitest";
+import {app} from "../src/index.js";
 import {putSite, signUp, setStatus, get, NAV} from "./helpers.js";
 
 beforeAll(() => putSite(env, {
@@ -14,6 +15,15 @@ describe("routing", () => {
     const res = await get("/coverage", NAV);
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/_door/login?next=%2Fcoverage");
+  });
+  it("a request on another hostname is 301'd to BASE_URL's host, path and query intact", async () => {
+    const res = await app.fetch(new Request("http://monitor.example.com/coverage?x=1", {headers: NAV}), env);
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("http://example.com/coverage?x=1");
+  });
+  it("a malformed percent-escape in the path is 400, not 500", async () => {
+    const res = await app.fetch(new Request("http://example.com/%E0%A4%A"), env);
+    expect(res.status).toBe(400);
   });
   it("anonymous data fetch gets 401, not a redirect", async () => {
     const res = await get("/_file/data/x.abc.parquet");
@@ -30,8 +40,12 @@ describe("routing", () => {
   // which is why the next test's "p@example.org" signup is pending, not admin.
   it("disabled page is 404 even for an active user", async () => {
     const cookie = await signUp("first@example.org"); // first user → admin, active
-    expect((await get("/ntd", {...NAV, cookie})).status).toBe(404);
+    const res = await get("/ntd", {...NAV, cookie});
+    expect(res.status).toBe(404);
     expect((await get("/ntd", NAV)).status).toBe(404);
+    const head = await app.fetch(new Request("http://example.com/ntd", {method: "HEAD", headers: NAV}), env);
+    expect(head.status).toBe(404);
+    expect(await head.text()).toBe(""); // HEAD carries no body, not even the 404 page
   });
   it("pending user is sent to /_door/pending; approved user gets the page and the data", async () => {
     const cookie = await signUp("p@example.org");
