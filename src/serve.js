@@ -43,5 +43,6 @@ export async function serveFromR2(bucket, prefix, request, path, access) {
     return new Response(body, {status, headers});
   }
   const notFound = await bucket.get(prefix + "404.html");
-  return new Response(notFound ? notFound.body : "Not found", {status: 404, headers: {"content-type": "text/html; charset=utf-8", "cache-control": "no-store"}});
+  const notFoundBody = request.method === "HEAD" ? null : notFound ? notFound.body : "Not found";
+  return new Response(notFoundBody, {status: 404, headers: {"content-type": "text/html; charset=utf-8", "cache-control": "no-store"}});
 }

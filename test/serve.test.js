@@ -50,4 +50,14 @@ describe("serveFromR2", () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("");
   });
+  it("HEAD to a missing path is 404 with no body", async () => {
+    const res = await serve("missing", "protected", {method: "HEAD"});
+    expect(res.status).toBe(404);
+    expect(await res.text()).toBe("");
+  });
+  it("falls back to a plain 404 when the site has no 404.html", async () => {
+    const res = await serveFromR2(env.SITE, "_site/empty/", req("missing"), "missing", "protected");
+    expect(res.status).toBe(404);
+    expect(await res.text()).toBe("Not found");
+  });
 });
