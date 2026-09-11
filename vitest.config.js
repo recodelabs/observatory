@@ -11,7 +11,8 @@ export default defineConfig(async () => {
         bindings: {
           TEST_MIGRATIONS: migrations,
           BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-1234",
-          BASE_URL: "http://example.com"
+          BASE_URL: "http://example.com",
+          TEST_PAGES: JSON.stringify([{match: "about", access: "public"}, {match: "ntd", access: "disabled"}])
         }
       }
     })],

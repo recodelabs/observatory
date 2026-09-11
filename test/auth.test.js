@@ -3,9 +3,33 @@ import {describe, it, expect, vi} from "vitest";
 import {createAuth} from "../src/auth.js";
 import {loadConfig} from "../src/config.js";
 import {readSession} from "../src/session.js";
-import {signUp, signIn} from "./helpers.js";
 
 const config = loadConfig({site: {name: "campaignhq"}, auth: {allowedDomains: ["ona.io"]}});
+
+// These tests exercise createAuth directly (not through the Worker), because they need
+// per-test config (allowedDomains, mail.adminNotify) that differs from doorman.config.js —
+// the config the Worker's shared signUp/signIn helpers in helpers.js are wired to.
+const PASSWORD = "correct horse battery";
+
+async function post(auth, path, body, ip) {
+  const res = await auth.handler(new Request(`http://example.com/auth${path}`, {
+    method: "POST",
+    headers: {"content-type": "application/json", origin: "http://example.com", "cf-connecting-ip": ip},
+    body: JSON.stringify(body)
+  }));
+  if (res.status !== 200) throw new Error(`${path} → ${res.status} ${await res.text()}`);
+  return res.headers.get("set-cookie");
+}
+
+/** Creates an account through the real /auth endpoints. Returns the session cookie. */
+function signUp(auth, email, password = PASSWORD, ip = "127.0.0.1") {
+  return post(auth, "/sign-up/email", {email, password, name: email}, ip);
+}
+
+/** Signs an existing account in. Returns the session cookie. */
+function signIn(auth, email, password = PASSWORD, ip = "127.0.0.1") {
+  return post(auth, "/sign-in/email", {email, password}, ip);
+}
 
 describe("createAuth", () => {
   it("first user is admin + active; later users are pending; allowlisted domain is active", async () => {
