@@ -2,7 +2,7 @@ import {Hono} from "hono";
 import {page, html, escape} from "./layout.js";
 import {csrfToken, checkCsrf} from "./csrf.js";
 import {dbFor, listUsers, setStatus, getUser} from "../users.js";
-import {sendMail} from "../mail.js";
+import {sendMail, MailError} from "../mail.js";
 
 export const admin = new Hono();
 
@@ -64,7 +64,11 @@ admin.post("/admin/:action", async (c) => {
   if (spec.status) await setStatus(db, userId, spec.status);
   if (spec.notify && target.status !== "active") {
     const config = c.get("config");
-    await sendMail(c.env, config, {to: target.email, subject: `${config.brand.title}: your account is approved`, text: `You can sign in now:\n\n${c.env.BASE_URL}/`});
+    try {
+      await sendMail(c.env, config, {to: target.email, subject: `${config.brand.title}: your account is approved`, text: `You can sign in now:\n\n${c.env.BASE_URL}/`});
+    } catch (err) {
+      if (!(err instanceof MailError)) throw err;
+    }
   }
   return c.redirect("/_door/admin?ok=1", 302);
 });

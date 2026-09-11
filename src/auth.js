@@ -3,7 +3,7 @@ import {magicLink} from "better-auth/plugins/magic-link";
 import {admin} from "better-auth/plugins/admin";
 import {Kysely} from "kysely";
 import {D1Dialect} from "kysely-d1";
-import {sendMail} from "./mail.js";
+import {sendMail, MailError} from "./mail.js";
 
 /** One Better Auth instance per request: Workers only expose bindings at request time. */
 export function createAuth(env, config) {
@@ -44,8 +44,12 @@ export function createAuth(env, config) {
           },
           after: async (user) => {
             if (user.status === "pending" && config.mail.adminNotify) {
-              await sendMail(env, config, {to: config.mail.adminNotify, subject: `${config.brand.title}: new account waiting for approval`,
-                text: `${user.email} signed up and is waiting for approval.\n\n${env.BASE_URL}/_door/admin`});
+              try {
+                await sendMail(env, config, {to: config.mail.adminNotify, subject: `${config.brand.title}: new account waiting for approval`,
+                  text: `${user.email} signed up and is waiting for approval.\n\n${env.BASE_URL}/_door/admin`});
+              } catch (err) {
+                if (!(err instanceof MailError)) throw err;
+              }
             }
           }
         }
@@ -56,7 +60,12 @@ export function createAuth(env, config) {
       magicLink({
         disableSignUp: true,
         sendMagicLink: async ({email, url}) => {
-          await sendMail(env, config, {to: email, subject: `Sign in to ${config.brand.title}`, text: `Click to sign in:\n\n${url}\n\nThis link expires in 5 minutes.`});
+          try {
+            await sendMail(env, config, {to: email, subject: `Sign in to ${config.brand.title}`, text: `Click to sign in:\n\n${url}\n\nThis link expires in 5 minutes.`});
+          } catch (err) {
+            console.error("[doorman auth] magic link send failed", err);
+            throw err;
+          }
         }
       })
     ]
