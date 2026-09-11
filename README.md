@@ -53,6 +53,19 @@ npx wrangler d1 migrations apply doorman --local
 npx wrangler dev
 ```
 
+`.dev.vars.example` also sets `BASE_URL=http://localhost:8787`, and local dev needs it:
+`wrangler.jsonc` pins `BASE_URL` to the production https origin, and with that value
+`wrangler dev` cannot log anyone in — the session cookie is `Secure` and gets dropped
+over `http://localhost`, and a form post from localhost is not a trusted origin.
+
+Two other things differ locally. `wrangler dev` does not set `cf-connecting-ip`, the
+header Better Auth's rate limiter buckets on, so every local request shares one counter
+and the limits (10 sign-ins and 5 sign-ups a minute) behave differently than in
+production. And once any page rule is `public`, the Framework runtime chunks
+(`_observablehq/`, `_npm/`, `_import/`) are served `public, max-age=31536000, immutable`
+— browsers and the Cloudflare edge may hold them for a year, so anything unhashed under
+those prefixes will not pick up a redeploy.
+
 Open `http://localhost:8787/_door/signup` and create an account — the **first** account
 created ever becomes an admin with `status: active` automatically, so the deployer can
 never be locked out. Everyone after that starts `pending` until an admin approves them
@@ -129,8 +142,9 @@ Before the first deploy of a given site:
 3. `npx wrangler secret put RESEND_API_KEY`, after verifying the sending domain in
    Resend. Without this secret, magic links and notification emails are logged to the
    Worker console instead of sent — fine for dev, not for production.
-4. Add `account_id` and a `routes` entry to `wrangler.jsonc` for the production
-   hostname (see the commented example in that file).
+4. Edit `wrangler.jsonc` for the deployment: `account_id` and the `routes` entry are
+   already filled in for ICR, so only `database_id` (from step 1) needs changing — plus
+   `vars.BASE_URL` and `routes` if the hostname differs.
 
 ### First deployment for ICR
 
@@ -164,14 +178,19 @@ npx wrangler secret put RESEND_API_KEY     # after verifying healthcampaigns.org
   `/_door/admin`; the approval email arrives; the account can now sign in.
 - Sign out, then sign back in with a magic link instead of a password.
 
-**4. Move the production hostname.** In `icr/campaignhq/wrangler.toml`, remove the
-`dashboards.healthcampaigns.org` route and redeploy that Worker (it keeps
-`monitor.*`'s 301 redirect, but that redirect must now point at a host doorman
-serves — add `monitor.healthcampaigns.org` as a second route on doorman and drop it
-from campaignhq, then add a host-redirect middleware in doorman that 301s any
-hostname other than `new URL(env.BASE_URL).hostname`). Then add
-`{"pattern": "dashboards.healthcampaigns.org", "custom_domain": true}` to doorman's
-`routes`, set `vars.BASE_URL` to `https://dashboards.healthcampaigns.org`, and deploy.
+**4. Move the production hostnames.** doorman already 301s any hostname other than
+`new URL(env.BASE_URL).hostname` to the canonical host, path and query intact, so it
+can take over the old `monitor.*` redirect the campaignhq Worker was doing:
+
+- In doorman's `wrangler.jsonc`, set `vars.BASE_URL` to
+  `https://dashboards.healthcampaigns.org` and list both hostnames in `routes`:
+  `{"pattern": "dashboards.healthcampaigns.org", "custom_domain": true}` and
+  `{"pattern": "monitor.healthcampaigns.org", "custom_domain": true}`.
+- In `icr/campaignhq/wrangler.toml`, drop both the `dashboards.*` and `monitor.*`
+  routes and redeploy that Worker so it releases the hostnames (custom domains can
+  only point at one Worker at a time; move them one at a time if downtime matters).
+- Deploy doorman. `https://monitor.healthcampaigns.org/x` now 301s to
+  `https://dashboards.healthcampaigns.org/x`, as the campaignhq Worker used to.
 
 **5. Retire the old Worker.** PR to the `icr` repo: delete `campaignhq/worker/` and
 `campaignhq/wrangler.toml`, drop the worker-deploy steps from `campaignhq/deploy.sh`

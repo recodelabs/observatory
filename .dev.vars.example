@@ -1,3 +1,7 @@
 # .dev.vars.example — copy to .dev.vars for `wrangler dev`
 BETTER_AUTH_SECRET=change-me-to-32-random-chars
+# wrangler.jsonc pins BASE_URL to the production origin, which local dev cannot use: the
+# session cookie is Secure (dropped over http://localhost) and form posts from localhost
+# are not a trusted origin. Override it here for `wrangler dev`.
+BASE_URL=http://localhost:8787
 # RESEND_API_KEY=re_...   (omit to print emails to the console)
