@@ -15,6 +15,7 @@ describe("routing", () => {
     const res = await get("/coverage", NAV);
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/_door/login?next=%2Fcoverage");
+    expect(res.headers.get("cache-control")).toBe("no-store"); // never let an edge cache a gate decision
   });
   it("a request on another hostname is 301'd to BASE_URL's host, path and query intact", async () => {
     const res = await app.fetch(new Request("http://monitor.example.com/coverage?x=1", {headers: NAV}), env);
@@ -42,6 +43,7 @@ describe("routing", () => {
     const cookie = await signUp("first@example.org"); // first user → admin, active
     const res = await get("/ntd", {...NAV, cookie});
     expect(res.status).toBe(404);
+    expect(res.headers.get("cache-control")).toBe("no-store");
     expect((await get("/ntd", NAV)).status).toBe(404);
     const head = await app.fetch(new Request("http://example.com/ntd", {method: "HEAD", headers: NAV}), env);
     expect(head.status).toBe(404);
@@ -52,6 +54,7 @@ describe("routing", () => {
     let res = await get("/", {...NAV, cookie});
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/_door/pending");
+    expect(res.headers.get("cache-control")).toBe("no-store");
     expect((await get("/_file/data/x.abc.parquet", {cookie})).status).toBe(403);
     await setStatus("p@example.org", "active");
     res = await get("/", {...NAV, cookie});
@@ -66,7 +69,14 @@ describe("routing", () => {
     expect(res.status).toBe(200);
   });
   it("non-GET to site paths is 405", async () => {
-    const res = await exports.default.fetch("http://example.com/about", {method: "POST"});
+    const res = await app.fetch(new Request("http://example.com/about", {method: "POST"}), env);
     expect(res.status).toBe(405);
+  });
+  // Last request in this file on purpose: exports.default.fetch is the entrypoint the
+  // Worker actually ships, and a second D1-touching call through it hangs (see helpers.js).
+  it("the shipped entrypoint gates a protected path", async () => {
+    const res = await exports.default.fetch("http://example.com/coverage", {headers: NAV, redirect: "manual"});
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/_door/login?next=%2Fcoverage");
   });
 });

@@ -8,11 +8,31 @@ import {readSession, SessionUnavailable} from "./session.js";
 import {doorPages} from "./pages/index.js";
 
 const baseConfig = loadConfig();
+const baseRules = compileRules(baseConfig.pages);
+
+// Rule compilation, and Better Auth's setup, are per-deployment work — doing either per
+// request costs on every hit. Bindings are stable for the life of an isolate, so both are
+// built once and reused; the test-only TEST_PAGES variant gets its own cached pair.
+let testConfig = null;
+let testRules = null;
+let cachedAuth = null;
+let cachedAuthDb = null;
 
 function configFor(env) {
   // Tests inject page rules; production uses doorman.config.js as-is.
-  if (env.TEST_PAGES) return {...baseConfig, pages: JSON.parse(env.TEST_PAGES)};
-  return baseConfig;
+  if (!env.TEST_PAGES) return baseConfig;
+  return testConfig ??= {...baseConfig, pages: JSON.parse(env.TEST_PAGES)};
+}
+
+function rulesFor(env, config) {
+  if (!env.TEST_PAGES) return baseRules;
+  return testRules ??= compileRules(config.pages);
+}
+
+function authFor(env, config) {
+  if (cachedAuth && cachedAuthDb === env.DB) return cachedAuth;
+  cachedAuthDb = env.DB;
+  return cachedAuth = createAuth(env, config);
 }
 
 /** Local hostnames `wrangler dev` answers on; never redirected to the canonical host. */
@@ -36,8 +56,8 @@ app.use("*", async (c, next) => {
 app.use("*", async (c, next) => {
   const config = configFor(c.env);
   c.set("config", config);
-  c.set("auth", createAuth(c.env, config));
-  c.set("resolveAccess", compileRules(config.pages));
+  c.set("auth", authFor(c.env, config));
+  c.set("resolveAccess", rulesFor(c.env, config));
   await next();
 });
 
@@ -76,7 +96,7 @@ app.all("*", async (c) => {
   const d = decide({access, user, isNavigation: isNavigation(request), path});
   const config = c.get("config");
   switch (d.kind) {
-    case "redirect": return c.redirect(d.to, 302);
+    case "redirect": return new Response(null, {status: 302, headers: {location: d.to, "cache-control": "no-store"}});
     case "status": return new Response(null, {status: d.status, headers: {"cache-control": "no-store"}});
     case "notfound": {
       const nf = await c.env.SITE.get(`_site/${config.site.name}/404.html`);
