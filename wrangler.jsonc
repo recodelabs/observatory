@@ -1,0 +1,16 @@
+{
+  "name": "doorman",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "account_id": "af8ac7eb1f7ec617e14702e69ce0d4c7",
+  "vars": {"BASE_URL": "https://doorman.healthcampaigns.org"},
+  "d1_databases": [
+    // database_id is a placeholder until `wrangler d1 create doorman` supplies the real one
+    // (see README "First deployment for ICR", step 1).
+    {"binding": "DB", "database_name": "doorman", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations"}
+  ],
+  "r2_buckets": [{"binding": "SITE", "bucket_name": "icr"}],
+  "routes": [{"pattern": "doorman.healthcampaigns.org", "custom_domain": true}]
+}

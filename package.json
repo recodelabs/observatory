@@ -1,0 +1,26 @@
+{
+  "name": "doorman",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Login and access control in front of a static site build. Cloudflare Worker + Better Auth + D1 + R2.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "deploy": "./deploy.sh",
+    "check-rules": "node scripts/check-rules.js"
+  },
+  "dependencies": {
+    "better-auth": "^1.7.4",
+    "hono": "^4.13.7",
+    "kysely": "^0.29.5",
+    "kysely-d1": "^0.4.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.1.8",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.131.1"
+  },
+  "engines": {"node": ">=20"}
+}
