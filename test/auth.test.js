@@ -4,11 +4,11 @@ import {createAuth} from "../src/auth.js";
 import {loadConfig} from "../src/config.js";
 import {readSession} from "../src/session.js";
 
-const config = loadConfig({site: {name: "campaignhq"}, auth: {allowedDomains: ["ona.io"]}});
+const config = loadConfig({site: {name: "testsite"}, auth: {allowedDomains: ["allowed.example"]}});
 
 // These tests exercise createAuth directly (not through the Worker), because they need
-// per-test config (allowedDomains, mail.adminNotify) that differs from doorman.config.js —
-// the config the Worker's shared signUp/signIn helpers in helpers.js are wired to.
+// per-test config (allowedDomains, mail.adminNotify) that differs from the app the shared
+// signUp/signIn helpers in helpers.js are wired to.
 const PASSWORD = "correct horse battery";
 
 async function post(auth, path, body, ip) {
@@ -36,12 +36,12 @@ describe("createAuth", () => {
     const auth = createAuth(env, config);
     await signUp(auth, "first@example.org");
     await signUp(auth, "second@example.org");
-    await signUp(auth, "third@ona.io");
+    await signUp(auth, "third@allowed.example");
     const rows = await env.DB.prepare("select email, role, status from user order by createdAt").all();
     expect(rows.results).toEqual([
       {email: "first@example.org", role: "admin", status: "active"},
       {email: "second@example.org", role: "user", status: "pending"},
-      {email: "third@ona.io", role: "user", status: "active"}
+      {email: "third@allowed.example", role: "user", status: "active"}
     ]);
   });
   it("readSession returns user with status and role from the cookie", async () => {
@@ -85,7 +85,7 @@ describe("createAuth", () => {
     expect(results).toEqual([]);
   });
   it("a pending signup notifies the admin address when one is configured", async () => {
-    const notifying = loadConfig({site: {name: "campaignhq"}, mail: {adminNotify: "admin@example.org"}});
+    const notifying = loadConfig({site: {name: "testsite"}, mail: {adminNotify: "admin@example.org"}});
     const auth = createAuth(env, notifying);
     const mailed = [];
     const log = vi.spyOn(console, "log").mockImplementation((line) => void mailed.push(String(line)));

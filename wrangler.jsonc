@@ -1,14 +1,14 @@
+// Local dev and test config for this repo only — no account, routes, or real resources.
+// A deployment keeps its own wrangler.jsonc next to its doorman.config.js (see README).
 {
-  "name": "doorman",
-  "main": "src/index.js",
+  "name": "doorman-dev",
+  "main": "example/worker.js",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
-  "account_id": "af8ac7eb1f7ec617e14702e69ce0d4c7",
-  "vars": {"BASE_URL": "https://doorman.healthcampaigns.org"},
+  "vars": {"BASE_URL": "http://localhost:8787"},
   "d1_databases": [
-    {"binding": "DB", "database_name": "doorman", "database_id": "1886e059-47b6-40d4-b6c7-30fb234bfb1f", "migrations_dir": "migrations"}
+    {"binding": "DB", "database_name": "doorman", "database_id": "local", "migrations_dir": "migrations"}
   ],
-  "r2_buckets": [{"binding": "SITE", "bucket_name": "icr"}],
-  "routes": [{"pattern": "doorman.healthcampaigns.org", "custom_domain": true}]
+  "r2_buckets": [{"binding": "SITE", "bucket_name": "site"}]
 }

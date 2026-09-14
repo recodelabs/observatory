@@ -1,14 +1,13 @@
 import {env, exports} from "cloudflare:workers";
 import {beforeAll, describe, it, expect} from "vitest";
-import {app} from "../src/index.js";
-import {putSite, signUp, setStatus, get, NAV} from "./helpers.js";
+import {app, putSite, signUp, setStatus, get, NAV} from "./helpers.js";
 
 beforeAll(() => putSite(env, {
   "index.html": "<h1>home</h1>", "about.html": "<h1>about</h1>", "ntd.html": "<h1>ntd</h1>", "404.html": "nope",
   "_file/data/x.abc.parquet": new Uint8Array(10), "_observablehq/client.js": "js"
 }));
-// doorman.config.js in the repo has pages: [] — the tests below inject rules through
-// the TEST_PAGES binding, which src/index.js honours only when defined (see Step 4).
+// Page rules under test are the PAGES list the shared app in helpers.js is built with:
+// `about` public, `ntd` disabled, everything else protected.
 
 describe("routing", () => {
   it("anonymous navigation to a protected page redirects to login with next", async () => {

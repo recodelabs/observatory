@@ -1,6 +1,6 @@
 import {env} from "cloudflare:workers";
 import {beforeAll, describe, it, expect, vi} from "vitest";
-import {putSite, signUp, setStatus, get, post, NAV} from "./helpers.js";
+import {putSite, signUp, setStatus, get, post, NAV, BRAND} from "./helpers.js";
 
 beforeAll(() => putSite(env, {"index.html": "<h1>home</h1>"}));
 
@@ -9,7 +9,7 @@ describe("login page", () => {
     const res = await get("/_door/login?next=%2Fcoverage", NAV);
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain("Campaign Dashboards");
+    expect(html).toContain(BRAND);
     expect(html).toContain('name="next" value="/coverage"');
     expect(html).toContain('action="/_door/magic"');
   });

@@ -34,7 +34,7 @@ describe("serveFromR2", () => {
     const res = await serve("about", "protected", {headers: {"if-none-match": first.headers.get("etag")}});
     expect(res.status).toBe(304);
   });
-  it("cache-control: protected is private, public keeps campaignhq headers, hashed assets long-lived", async () => {
+  it("cache-control: protected is private, public keeps the site headers, hashed assets long-lived", async () => {
     expect((await serve("about", "protected")).headers.get("cache-control")).toBe("private, max-age=300");
     expect((await serve("about", "public")).headers.get("cache-control")).toBe("public, max-age=300");
     expect((await serve("_observablehq/client.js", "protected")).headers.get("cache-control")).toBe("private, max-age=31536000, immutable");

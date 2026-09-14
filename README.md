@@ -43,42 +43,66 @@ Protected responses get `Cache-Control: private, …` so the Cloudflare edge nev
 a protected file for an anonymous request. If D1 is unreachable the gate fails closed:
 503, never a served file.
 
-## Quick start
+## Using it
+
+doorman is a library. A deployment is a small directory in the site's own repo holding
+three files, with doorman installed from git:
+
+```
+mysite/doorman/
+  package.json        "doorman": "github:recodelabs/doorman#v0.2.0", plus wrangler
+  worker.js           import {createDoorman} from "doorman"; export default createDoorman(config)
+  doorman.config.js   site, brand, auth, mail, pages — see the config reference below
+  wrangler.jsonc      account, D1 + R2 bindings, BASE_URL, routes; migrations_dir points
+                      at node_modules/doorman/migrations
+```
+
+`example/` in this repo is a complete, generic copy of that layout (`example/worker.js`
+imports from `../src` instead of the package). A deployment's `wrangler.jsonc` needs the
+`nodejs_compat` flag, a `DB` D1 binding, a `SITE` R2 binding, and `vars.BASE_URL` set to
+the canonical https origin; the two secrets are `BETTER_AUTH_SECRET` (32+ random chars)
+and `RESEND_API_KEY`.
+
+Before the first deploy:
+
+```bash
+npx wrangler d1 create doorman             # paste database_id into wrangler.jsonc
+npx wrangler secret put BETTER_AUTH_SECRET # openssl rand -base64 32
+npx wrangler secret put RESEND_API_KEY     # after verifying mail.from's domain in Resend
+```
+
+Then `npx doorman-deploy` (see Deploying). The **first** account created ever becomes an
+admin with `status: active` automatically, so the deployer can never be locked out.
+Everyone after that starts `pending` until an admin approves them at `/_door/admin`,
+unless their email domain is in `auth.allowedDomains`.
+
+## Developing doorman
 
 ```bash
 npm install
 cp .dev.vars.example .dev.vars          # set BETTER_AUTH_SECRET to 32+ random chars
-npx wrangler d1 create doorman          # paste the returned database_id into wrangler.jsonc
 npx wrangler d1 migrations apply doorman --local
-npx wrangler dev
+npx wrangler dev                        # serves example/ config at http://localhost:8787
+npm test
 ```
 
-`.dev.vars.example` also sets `BASE_URL=http://localhost:8787`, and local dev needs it:
-`wrangler.jsonc` pins `BASE_URL` to the production https origin, and with that value
-`wrangler dev` cannot log anyone in — the session cookie is `Secure` and gets dropped
-over `http://localhost`, and a form post from localhost is not a trusted origin.
-
-Two other things differ locally. `wrangler dev` does not set `cf-connecting-ip`, the
-header Better Auth's rate limiter buckets on, so every local request shares one counter
-and the limits (10 sign-ins and 5 sign-ups a minute) behave differently than in
+The repo's `wrangler.jsonc` is a local-only config (no account, no routes); `wrangler dev`
+runs `example/worker.js`. `wrangler dev` does not set `cf-connecting-ip`, the header
+Better Auth's rate limiter buckets on, so every local request shares one counter and
+the limits (10 sign-ins and 5 sign-ups a minute) behave differently than in
 production. And once any page rule is `public`, the Framework runtime chunks
 (`_observablehq/`, `_npm/`, `_import/`) are served `public, max-age=31536000, immutable`
 — browsers and the Cloudflare edge may hold them for a year, so anything unhashed under
 those prefixes will not pick up a redeploy.
 
-Open `http://localhost:8787/_door/signup` and create an account — the **first** account
-created ever becomes an admin with `status: active` automatically, so the deployer can
-never be locked out. Everyone after that starts `pending` until an admin approves them
-at `/_door/admin`, unless their email domain is in `auth.allowedDomains`.
-
 ## Config reference
 
-Everything lives in `doorman.config.js`, imported directly by the Worker (wrangler
-bundles it — no filesystem access at runtime):
+Everything lives in the deployment's `doorman.config.js`, imported by its Worker entry
+file (wrangler bundles it — no filesystem access at runtime):
 
 - `site.name` — the R2 key prefix; the site is served from `_site/<name>/…`.
-- `site.dist` — path to the built site, relative to the repo root. Used only by
-  `deploy.sh` and `scripts/check-rules.js`, never read by the deployed Worker.
+- `site.dist` — path to the built site, relative to the deployment directory. Used
+  only by `doorman-deploy` and `doorman-check-rules`, never read by the deployed Worker.
 - `brand.title` — shown in page titles and the footer.
 - `brand.accent` — CSS color for buttons and links on doorman's own pages.
 - `brand.logo` — optional image URL shown above the page heading; `null` to omit.
@@ -116,92 +140,42 @@ data loader that ends up there.**
 `_file/**` (the built data files) stays `protected` by default; it is *not* covered by
 the runtime auto-public rule, so a public page whose charts read from `_file/` needs
 its own explicit public rule on that data, or the page will render but its charts will
-get 401s for anonymous visitors. `scripts/check-rules.js` (see below) warns about
+get 401s for anonymous visitors. `doorman-check-rules` (see below) warns about
 exactly this.
 
 ## Deploying
 
-`./deploy.sh [--skip-build] [--dry-run]` does the whole rollout: builds the site
-(`npm run build` in `site.dist/..`, skip with `--skip-build`), runs
-`scripts/check-rules.js` as an advisory check, `rclone sync`s `site.dist` to
-`r2:<bucket>/_site/<site.name>/`, applies D1 migrations against the remote database,
-and runs `wrangler deploy`. `--dry-run` does the build and the rclone dry-run sync but
-skips migrating and deploying. It needs an `r2:` rclone remote configured for the
-Cloudflare account (`R2_REMOTE` to use a different remote name, `R2_BUCKET` to override
-the bucket read from `wrangler.jsonc`).
+Both commands run from the deployment directory (the one with `doorman.config.js` and
+`wrangler.jsonc`); `npx` finds them once doorman is installed.
 
-`scripts/check-rules.js` (also `npm run check-rules`) loads the config, walks
-`site.dist`, and prints which `.html` files resolve `public` and which resolve
-`disabled`. It warns — but always exits 0, so it never blocks a deploy — when public
-pages exist but no `_file/` object is public.
-
-Before the first deploy of a given site:
-
-1. `npx wrangler d1 create doorman`, paste the `database_id` into `wrangler.jsonc`.
-2. `npx wrangler secret put BETTER_AUTH_SECRET` (`openssl rand -base64 32`).
-3. `npx wrangler secret put RESEND_API_KEY`, after verifying the sending domain in
-   Resend. Without this secret, magic links and notification emails are logged to the
-   Worker console instead of sent — fine for dev, not for production.
-4. Edit `wrangler.jsonc` for the deployment: `account_id` and the `routes` entry are
-   already filled in for ICR, so only `database_id` (from step 1) needs changing — plus
-   `vars.BASE_URL` and `routes` if the hostname differs.
-
-### First deployment for ICR
-
-This is the runbook for putting `doorman` in front of ICR's `campaignhq` dashboards.
-These are steps the project lead runs by hand against the live Cloudflare account —
-nothing here is automated by this repo.
-
-**1. Create the D1 database and secrets:**
+`npx doorman-deploy [--skip-build] [--dry-run]` does the whole rollout: builds the site
+(`npm run build` in `site.dist/..`, skip with `--skip-build`), runs `doorman-check-rules`
+as an advisory check, `rclone sync`s `site.dist` to `r2:<bucket>/_site/<site.name>/`,
+applies D1 migrations against the remote database, and runs `wrangler deploy`.
+`--dry-run` does the build and the rclone dry-run sync but skips migrating and
+deploying. It needs an `r2:` rclone remote configured for the Cloudflare account
+(`R2_REMOTE` to use a different remote name, `R2_BUCKET` to override the bucket read
+from `wrangler.jsonc`). Without rclone, sync the build some other way and run the last
+two steps by hand:
 
 ```bash
-npx wrangler d1 create doorman            # paste database_id into wrangler.jsonc
-npx wrangler secret put BETTER_AUTH_SECRET # openssl rand -base64 32
-npx wrangler secret put RESEND_API_KEY     # after verifying healthcampaigns.org in Resend
+npx wrangler d1 migrations apply doorman --remote
+npx wrangler deploy
 ```
 
-**2. Deploy** (the `campaignhq` site is already built and synced to R2 under
-`_site/campaignhq/` by `icr/campaignhq/deploy.sh`, so this run skips the build):
+`npx doorman-check-rules` loads the config, walks `site.dist`, and prints which `.html`
+files resolve `public` and which resolve `disabled`. It warns — but always exits 0, so
+it never blocks a deploy — when public pages exist but no `_file/` object is public.
 
-```bash
-./deploy.sh --skip-build
-```
+Moving hostnames: doorman 301s any hostname other than `new URL(env.BASE_URL).hostname`
+to the canonical host, path and query intact, so an old hostname can be listed in
+`routes` alongside the canonical one and it redirects. Custom domains can only point at
+one Worker at a time, so release a hostname from its previous Worker before deploying
+doorman with it.
 
-**3. Verify on staging** (`https://doorman.healthcampaigns.org`):
-
-- Anonymous `/` redirects to the login page. `/about` renders without signing in.
-  `/_file/…parquet` returns 401 anonymously.
-- Sign up as `mberg@ona.io` — first user, so it becomes admin and is active
-  immediately. Dashboards load, DuckDB queries run, maps render (pmtiles range
-  requests pass through the gate).
-- Sign up a second address — lands on the pending page. Approve it from
-  `/_door/admin`; the approval email arrives; the account can now sign in.
-- Sign out, then sign back in with a magic link instead of a password.
-
-**4. Move the production hostnames.** doorman already 301s any hostname other than
-`new URL(env.BASE_URL).hostname` to the canonical host, path and query intact, so it
-can take over the old `monitor.*` redirect the campaignhq Worker was doing:
-
-- In doorman's `wrangler.jsonc`, set `vars.BASE_URL` to
-  `https://dashboards.healthcampaigns.org` and list both hostnames in `routes`:
-  `{"pattern": "dashboards.healthcampaigns.org", "custom_domain": true}` and
-  `{"pattern": "monitor.healthcampaigns.org", "custom_domain": true}`.
-- In `icr/campaignhq/wrangler.toml`, drop both the `dashboards.*` and `monitor.*`
-  routes and redeploy that Worker so it releases the hostnames (custom domains can
-  only point at one Worker at a time; move them one at a time if downtime matters).
-- Deploy doorman. `https://monitor.healthcampaigns.org/x` now 301s to
-  `https://dashboards.healthcampaigns.org/x`, as the campaignhq Worker used to.
-
-**5. Retire the old Worker.** PR to the `icr` repo: delete `campaignhq/worker/` and
-`campaignhq/wrangler.toml`, drop the worker-deploy steps from `campaignhq/deploy.sh`
-(keep the build + rclone sync steps, or point its README at doorman's `deploy.sh`),
-and note in `campaignhq/README.md` that the site is now served by doorman.
-
-**6. Commit and tag** (in this repo, once the config in steps 1–4 has been applied):
-
-```bash
-git add -A && git commit -m "ICR deployment config for campaignhq" && git tag v0.1.0 && git push --tags
-```
+Upgrading: bump the git tag in the deployment's `package.json`, `npm install`, and
+deploy. Migrations ship with the package, so `doorman-deploy` (or the manual
+`migrations apply`) picks up new ones.
 
 ## Admin
 

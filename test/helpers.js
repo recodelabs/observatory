@@ -1,7 +1,14 @@
 import {env} from "cloudflare:workers";
-import {app} from "../src/index.js";
+import {createApp} from "../src/index.js";
 
-export const PREFIX = "_site/campaignhq/";
+// The suite's deployment config: a bare site with two page rules (routes.test.js and
+// pages.test.js exercise them). Sign-up policy lives in auth.test.js, which builds its own.
+export const SITE = "testsite";
+export const PAGES = [{match: "about", access: "public"}, {match: "ntd", access: "disabled"}];
+export const BRAND = "Test Site";
+export const app = createApp({site: {name: SITE}, brand: {title: BRAND}, pages: PAGES});
+
+export const PREFIX = `_site/${SITE}/`;
 export async function putSite(env, files) {
   for (const [key, body] of Object.entries(files)) await env.SITE.put(PREFIX + key, body);
 }

@@ -11,9 +11,9 @@ protected too. A Cloudflare Worker wraps a static build: Better Auth handles use
 and sessions, D1 stores them, R2 holds the built site. The Framework site is a black
 box to doorman; it needs no changes.
 
-First user: ICR's `campaignhq` at dashboards.healthcampaigns.org. Its current Worker
-(`icr/campaignhq/worker/index.js`) already serves the build from R2; doorman lifts that
-serving logic and puts a session gate in front of it.
+The serving half is the usual "static site from R2" Worker; doorman keeps that logic
+and puts a session gate in front of it. doorman is a library: each site keeps its own
+deployment directory (config, wrangler.jsonc, entry file) and installs doorman from git.
 
 ## Goals
 
@@ -22,7 +22,7 @@ serving logic and puts a session gate in front of it.
 - Per-path rules that make listed pages public or disabled.
 - Sign-in by email + password or magic link. Anyone can sign up; an admin approves.
 - A minimal admin page: list users, approve, disable, set role, delete.
-- Reusable for any Framework site. ICR proves it; packaging comes later.
+- Reusable for any Framework site; one deployment directory per site.
 
 ## Non-goals (v1)
 
@@ -73,12 +73,12 @@ Routes are matched in this order:
         for navigations, 403 for fetches.
       - Session, `active` → serve.
    4. `public` → serve.
-   5. Serve = the R2 static logic from campaignhq's Worker: cleanUrls (`/about` →
+   5. Serve = the usual R2 static-site logic: cleanUrls (`/about` →
       `about.html`, `/` → `index.html`), range requests, ETag/304, content types,
       site 404 page. Cache headers change: protected responses are
       `Cache-Control: private, max-age=…` so the Cloudflare edge never caches a
       protected file for an anonymous request; hashed assets keep the long max-age,
-      still private. Public responses keep campaignhq's public cache headers.
+      still private. Public responses keep the site's public cache headers.
 
 Data protection works because Framework builds fetch parquet and pmtiles from the
 same origin under `/_file/…`. The browser sends the session cookie on same-origin
@@ -166,10 +166,10 @@ client-side framework. Themed by `brand.title`, `brand.logo`, `brand.accent`.
 ```js
 // doorman.config.js
 export default {
-  site:  {name: "campaignhq", dist: "../icr/campaignhq/dist"},
-  brand: {title: "Campaign Dashboards", accent: "#0b57d0", logo: null},
-  auth:  {allowedDomains: ["ona.io", "unicef.org"], sessionDays: 30},
-  mail:  {from: "doorman@healthcampaigns.org", adminNotify: "mberg@ona.io"},
+  site:  {name: "mysite", dist: "../dist"},
+  brand: {title: "My Site", accent: "#0b57d0", logo: null},
+  auth:  {allowedDomains: ["example.org"], sessionDays: 30},
+  mail:  {from: "doorman@example.org", adminNotify: "admin@example.org"},
   pages: [
     {match: "about", access: "public"},
   ],
@@ -187,13 +187,14 @@ doorman/
   README.md
   package.json          hono, better-auth, kysely, kysely-d1, wrangler, vitest
   wrangler.toml         bindings, routes (per deployment)
-  doorman.config.js       per deployment
+  example/              a generic deployment directory (worker.js, doorman.config.js)
   migrations/           D1 SQL from `better-auth generate` + the status column
-  deploy.sh             build site → rclone sync dist → wrangler d1 migrations apply → wrangler deploy
+  bin/doorman-deploy    build site → rclone sync dist → wrangler d1 migrations apply → wrangler deploy
+  bin/doorman-check-rules  advisory: which pages resolve public/disabled
   src/
-    index.js            Hono app, route order as above
+    index.js            createApp(config) / createDoorman(config); route order as above
     gate.js             page-rule resolution + session decision table (pure)
-    serve.js            R2 static serving (lifted from campaignhq worker)
+    serve.js            R2 static serving
     auth.js             Better Auth factory, plugins, hooks, status field
     mail.js             Resend sender + console fallback
     pages/              login.js signup.js pending.js admin.js layout.js style.css
@@ -221,25 +222,24 @@ Vitest with `@cloudflare/vitest-pool-workers`.
   combination of {public, protected, disabled} × {none, pending, disabled, active,
   admin} × {navigation, fetch}.
 - Rules: glob semantics, first-match, runtime auto-public trigger, explicit override.
-- Serve: unchanged behaviors from campaignhq's Worker, with cache header changes.
+- Serve: the standard R2 static behaviors, with cache header changes.
 - End to end against a fixture `dist/` (one HTML page, one `_file/…parquet`, one
   `_observablehq/` chunk) and a local D1: anonymous GET of the page → 302, of the
   parquet → 401; after sign-up → pending; after admin approve → 200 with correct
   `Content-Range` on a ranged parquet fetch.
-- Manual: the real campaignhq build on a staging hostname before the route moves.
+- Manual: a real site build on a staging hostname before the production route moves.
 
-## Rollout for ICR
+## Rollout for a site
 
-1. Create the `doorman` repo from this spec. Deploy to `doorman.healthcampaigns.org`
-   pointed at the campaignhq build (`_site/campaignhq/`, the prefix it already uses).
-2. Sign up as the first user (becomes admin). Verify pages and DuckDB queries work
+1. Add a deployment directory to the site's repo (see README "Using it"). Deploy to a
+   staging hostname pointed at the site's existing R2 prefix.
+2. Sign up as the first user (becomes admin). Verify pages and data fetches work
    signed in and are blocked signed out.
-3. Move the `dashboards.healthcampaigns.org` custom-domain route from the
-   `campaignhq` Worker to doorman. Keep `monitor.healthcampaigns.org`'s 301.
-4. Retire `campaignhq/worker/` and point `campaignhq/deploy.sh` at doorman's
-   deploy, or delete it in favor of doorman's.
+3. Move the production custom-domain route from the site's old Worker to doorman.
+   Old hostnames can stay listed in `routes`; doorman 301s them to BASE_URL.
+4. Retire the old Worker and point the site's deploy at `doorman-deploy`.
 
 ## Open questions
 
 None blocking. Later: OAuth providers, per-role rules, one Worker serving several
-sites, npm packaging.
+sites, publishing to npm.

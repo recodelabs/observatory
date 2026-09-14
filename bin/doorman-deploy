@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Build the site, publish it to R2, migrate D1, deploy the Worker.
-#   ./deploy.sh [--skip-build] [--dry-run]
+# Build the site, publish it to R2, migrate D1, deploy the Worker. Run from a deployment
+# directory holding doorman.config.js and wrangler.jsonc (see the doorman README).
+#   doorman-deploy [--skip-build] [--dry-run]
 # Env: R2_BUCKET (default: bucket_name from wrangler.jsonc), R2_REMOTE (rclone remote, default r2)
 set -euo pipefail
-cd "$(dirname "$0")"
 BUILD=1; DRY=""
 for a in "$@"; do case "$a" in --skip-build) BUILD=0;; --dry-run) DRY="--dry-run";; *) echo "unknown option $a" >&2; exit 2;; esac; done
+[ -f doorman.config.js ] && [ -f wrangler.jsonc ] || { echo "run from a directory with doorman.config.js and wrangler.jsonc" >&2; exit 1; }
 
 NAME=$(node -e 'import("./doorman.config.js").then(m=>console.log(m.default.site.name))')
 DIST=$(node -e 'import("./doorman.config.js").then(m=>console.log(m.default.site.dist||""))')
@@ -17,7 +18,7 @@ REMOTE="${R2_REMOTE:-r2}"
 [ -n "$DIST" ] || { echo "doorman.config.js: site.dist is required to deploy" >&2; exit 1; }
 
 if [ "$BUILD" = 1 ]; then echo "== build site in $DIST/.."; (cd "$DIST/.." && npm run build); fi
-echo "== check page rules"; node scripts/check-rules.js || true
+echo "== check page rules"; node "$(dirname "$0")/doorman-check-rules" || true
 echo "== sync $DIST → $REMOTE:$BUCKET/_site/$NAME ${DRY:+(dry run)}"
 rclone sync $DRY --checksum --fast-list --transfers 16 --exclude ".DS_Store" "$DIST" "$REMOTE:$BUCKET/_site/$NAME" --stats-one-line -v 2>&1 | tail -3
 if [ -z "$DRY" ]; then

@@ -1,7 +1,6 @@
 import {env} from "cloudflare:workers";
 import {describe, it, expect} from "vitest";
-import {app} from "../src/index.js";
-import {signUp, post, get, NAV} from "./helpers.js";
+import {app, signUp, post, get, NAV} from "./helpers.js";
 
 // Both tests in this file share D1 storage (per file), so order matters: the rate-limit
 // test's sign-up needs its own unique IP (via the signUp helper) before the fixed-IP flood,

@@ -1,6 +1,5 @@
-import userConfig from "../doorman.config.js";
-
-export function loadConfig(raw = userConfig) {
+/** Normalises a consumer's doorman.config.js, filling defaults. Throws on a missing site.name. */
+export function loadConfig(raw) {
   if (!raw?.site?.name) throw new Error("doorman.config.js: site.name is required");
   return {
     site: {name: raw.site.name, dist: raw.site.dist ?? null},
