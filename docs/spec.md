@@ -202,7 +202,10 @@ first person to register an active admin is removed (see "Who is an admin").
 ### 3. Rules by who the user is
 
 - **Where access is set:** on each site (`sites[].access`), with optional per-path
-  exceptions (`access[]`, first match wins). A site without `access` needs sign-in, so a
+  exceptions (`access[]`, first match wins). Until the manifest below exists, an exception
+  can only make a page public: a stricter one would close the page but not its data, and a
+  public one fails closed (the page opens, its site's closed data stays closed). To close
+  part of a site, make it a site of its own. A site without `access` needs sign-in, so a
   new site is never public by accident. In the ICR, the Nigeria demo site is `public` and
   the login applies to `/ug/` and new sites.
 - **What access can be:**

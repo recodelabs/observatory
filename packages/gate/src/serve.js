@@ -37,7 +37,7 @@ export async function serveFromR2(bucket, prefix, request, path, visibility, not
       if (!(await bucket.head(prefix + key))) continue;
       const url = new URL(request.url);
       url.pathname = `/${path}/`;
-      return new Response(null, {status: 301, headers: {location: url.pathname + url.search, "cache-control": `${visibility}, max-age=300`}});
+      return new Response(null, {status: 301, headers: {location: url.pathname + url.search, "cache-control": visibility === "public" ? "public, max-age=300" : "private, no-cache"}});
     }
     const wasm = key.endsWith(".wasm");
     let obj = null, brotli = false;
@@ -54,7 +54,11 @@ export async function serveFromR2(bucket, prefix, request, path, visibility, not
     headers.set("accept-ranges", "bytes");
     if (wasm) headers.set("vary", "accept-encoding");
     if (brotli) headers.set("content-encoding", "br");
-    headers.set("cache-control", IMMUTABLE.test(key) ? `${visibility}, max-age=31536000, immutable` : `${visibility}, max-age=300`);
+    // A gated file must go back to the gate every time (no-cache: revalidated, a cheap 304),
+    // so the browser can't reuse it after its user signs out or loses access. Public files
+    // keep the long cache for Framework's hashed assets.
+    headers.set("cache-control", visibility !== "public" ? "private, no-cache"
+      : IMMUTABLE.test(key) ? "public, max-age=31536000, immutable" : "public, max-age=300");
     const hasBody = "body" in obj && obj.body;
     const partial = ranged && obj.range && hasBody;
     if (partial) {

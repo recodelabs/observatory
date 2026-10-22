@@ -49,6 +49,9 @@ export function createApp(rawConfig) {
     await next();
   });
 
+  // Better Auth's admin plugin endpoints check only the stored role, not the gate's idea of an
+  // admin (disabled users, auth.admins), so they are closed; the admin page does that work.
+  app.all("/auth/admin/*", (c) => c.text("Not found", 404));
   app.all("/auth/*", (c) => c.get("auth").handler(c.req.raw));
 
   // doorman's pages moved from /_door/ to /_obs/; old links (in sign-in emails, bookmarks) follow.

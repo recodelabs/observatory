@@ -51,10 +51,11 @@ describe("serveFromR2", () => {
     expect(ranged.status).toBe(206);
     expect(ranged.headers.get("content-encoding")).toBeNull();
   });
-  it("cache-control: private or public as decided, hashed assets long-lived, in nested sites too", async () => {
-    expect((await serve("about", "private")).headers.get("cache-control")).toBe("private, max-age=300");
+  it("cache-control: gated files are revalidated every time; public hashed assets are long-lived, in nested sites too", async () => {
+    expect((await serve("about", "private")).headers.get("cache-control")).toBe("private, no-cache");
     expect((await serve("about", "public")).headers.get("cache-control")).toBe("public, max-age=300");
-    expect((await serve("_observablehq/client.js", "private")).headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect((await serve("_observablehq/client.js", "private")).headers.get("cache-control")).toBe("private, no-cache");
+    expect((await serve("_observablehq/client.js", "public")).headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     expect((await serve("ug/_npm/x.js", "public")).headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
   });
   it("404 uses the site's 404.html", async () => {

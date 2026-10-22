@@ -1,6 +1,6 @@
 import {describe, it, expect} from "vitest";
 import {loadConfig} from "../src/config.js";
-import {compileAccess, decide, holds, isAdmin, statusOf, describeRule} from "../src/access.js";
+import {compileAccess, decide, holds, isAdmin, statusOf, describeRule, pageKey} from "../src/access.js";
 
 const config = loadConfig({
   sites: [
@@ -9,7 +9,7 @@ const config = loadConfig({
     {name: "team", path: "/team/"},
     {name: "off", path: "/off/", access: "disabled"}
   ],
-  access: [{match: "team/about", allow: "public"}, {match: "ntd", allow: "disabled"}],
+  access: [{match: "team/about", allow: "public"}],
   auth: {admins: [{email: "boss@ona.io"}, {oidc: "uga", group: "/dashboards-admins"}], email: {allowedDomains: ["allowed.example"]}}
 });
 const resolve = compileAccess(config);
@@ -27,6 +27,8 @@ describe("config", () => {
     [{sites: [{name: "a", path: "/", access: [{group: "/x"}]}]}, /unknown condition/],
     [{sites: [{name: "a", path: "/"}], auth: {admins: [{role: "admin"}]}}, /unknown condition/],
     [{sites: [{name: "a", path: "/"}], access: [{match: "/x", allow: "public"}]}, /leading/],
+    [{sites: [{name: "a", path: "/"}], access: [{match: "x", allow: "signed-in"}]}, /only "public"/],
+    [{sites: [{name: "a", path: "/"}], access: [{match: "x", allow: "disabled"}]}, /only "public"/],
     [{sites: [{name: "a", path: "/"}], cloudflare: {sites: "../x/"}}, /cloudflare.sites/]
   ])("rejects %j", (raw, error) => {
     expect(() => loadConfig(raw)).toThrow(error);
@@ -42,16 +44,21 @@ describe("resolve", () => {
     expect(resolve("ug/_file/data/t.parquet").rule).toEqual(config.sites[1].access);
     expect(resolve("off/x").rule).toBe("disabled");
   });
-  it("applies the first matching exception, by path or clean URL", () => {
-    expect(resolve("team/about").rule).toBe("public");
-    expect(resolve("team/about.html").rule).toBe("public");
-    expect(resolve("ntd").rule).toBe("disabled");
+  it("applies an exception to every URL of the page", () => {
+    for (const p of ["team/about", "team/about/", "team/about.html", "team/about/index", "team/about/index.html"]) {
+      expect(resolve(p).rule).toBe("public");
+    }
     expect(resolve("team/other").rule).toBe("signed-in");
+  });
+  it("gives every alias of a page one name", () => {
+    expect(["secret", "secret/", "secret.html", "secret/index", "secret/index.html"].map(pageKey)).toEqual(Array(5).fill("secret"));
+    expect(["", "index", "index.html"].map(pageKey)).toEqual(["", "", ""]);
   });
   it("makes Framework's runtime public only in a site with a public page, never the search index", () => {
     expect(resolve("team/_observablehq/client.js").rule).toBe("public");    // team/about is public
     expect(resolve("team/_npm/d3@7/x.js").rule).toBe("public");
     expect(resolve("team/_observablehq/minisearch.json").rule).toBe("signed-in");
+    expect(resolve("team/_observablehq/minisearch.6c0f2a1e.json").rule).toBe("signed-in");
     expect(resolve("team/_import/components/x.js").rule).toBe("signed-in");
     expect(resolve("ug/_observablehq/client.js").rule).toEqual(config.sites[1].access);
   });

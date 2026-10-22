@@ -1,8 +1,8 @@
 import {env} from "cloudflare:workers";
 import {createApp} from "../src/index.js";
 
-// The suite's deployment config: a main site for signed-in users with one public and one
-// disabled page, and a nested site at /ug/ open to one email domain. admin@example.org is an
+// The suite's deployment config: a main site for signed-in users with one public page, a
+// disabled site at /off/, and a nested site at /ug/ open to one email domain. admin@example.org is an
 // admin by config once verified; allowed.example addresses need no approval once verified.
 // Sign-up policy variations live in auth.test.js, which builds its own.
 export const BRAND = "Test Site";
@@ -12,9 +12,10 @@ export const CONFIG = {
   cloudflare: {sites: PREFIX},
   sites: [
     {name: "main", path: "/", access: "signed-in"},
-    {name: "ug", path: "/ug/", access: [{emailDomain: "team.example"}]}
+    {name: "ug", path: "/ug/", access: [{emailDomain: "team.example"}]},
+    {name: "off", path: "/off/", access: "disabled"}
   ],
-  access: [{match: "about", allow: "public"}, {match: "ntd", allow: "disabled"}],
+  access: [{match: "about", allow: "public"}],
   auth: {admins: [{email: "admin@example.org"}], email: {allowedDomains: ["allowed.example"]}}
 };
 export const app = createApp(CONFIG);

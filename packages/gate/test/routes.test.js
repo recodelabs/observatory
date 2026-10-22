@@ -3,12 +3,13 @@ import {beforeAll, describe, it, expect} from "vitest";
 import {app, putSite, signUp, signIn, setStatus, verify, get, NAV} from "./helpers.js";
 
 beforeAll(() => putSite(env, {
-  "index.html": "<h1>home</h1>", "about.html": "<h1>about</h1>", "ntd.html": "<h1>ntd</h1>", "404.html": "nope",
+  "index.html": "<h1>home</h1>", "about.html": "<h1>about</h1>", "404.html": "nope",
+  "off/ntd.html": "<h1>ntd</h1>", "off/404.html": "off nope",
   "_file/data/x.abc.parquet": new Uint8Array(10), "_observablehq/client.js": "js",
-  "_observablehq/minisearch.json": "{}",
+  "_observablehq/minisearch.json": "{}", "_observablehq/minisearch.1a2b3c4d.json": "{}",
   "ug/index.html": "<h1>uganda</h1>", "ug/404.html": "ug nope", "ug/_file/data/t.parquet": new Uint8Array(4)
 }));
-// The config under test is CONFIG in helpers.js: main site signed-in, `about` public, `ntd`
+// The config under test is CONFIG in helpers.js: main site signed-in, `about` public, /off/
 // disabled, /ug/ open to verified team.example addresses; admin@example.org an admin by config.
 
 describe("routing", () => {
@@ -41,16 +42,17 @@ describe("routing", () => {
     expect((await get("/about", NAV)).status).toBe(200);
     expect((await get("/_observablehq/client.js")).status).toBe(200);
     expect((await get("/_observablehq/minisearch.json")).status).toBe(401);
+    expect((await get("/_observablehq/minisearch.1a2b3c4d.json")).status).toBe(401);
     expect((await get("/_file/data/x.abc.parquet")).status).toBe(401);
   });
-  it("a disabled page is 404 for everyone, admins too, with the site's 404 page", async () => {
+  it("a disabled site is 404 for everyone, admins too, with the site's 404 page", async () => {
     const cookie = await signUp("admin@example.org");
     await verify("admin@example.org");
-    const res = await get("/ntd", {...NAV, cookie});
+    const res = await get("/off/ntd", {...NAV, cookie});
     expect(res.status).toBe(404);
-    expect(await res.text()).toBe("nope");
+    expect(await res.text()).toBe("off nope");
     expect(res.headers.get("cache-control")).toBe("no-store");
-    const head = await app.fetch(new Request("http://example.com/ntd", {method: "HEAD", headers: NAV}), env);
+    const head = await app.fetch(new Request("http://example.com/off/ntd", {method: "HEAD", headers: NAV}), env);
     expect(head.status).toBe(404);
     expect(await head.text()).toBe(""); // HEAD carries no body, not even the 404 page
   });
@@ -63,7 +65,7 @@ describe("routing", () => {
     await setStatus("p@example.org", "active");
     res = await get("/", {...NAV, cookie});
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("private, max-age=300");
+    expect(res.headers.get("cache-control")).toBe("private, no-cache");
     res = await get("/_file/data/x.abc.parquet", {cookie, range: "bytes=0-3"});
     expect(res.status).toBe(206);
     expect(res.headers.get("content-range")).toBe("bytes 0-3/10");
@@ -110,6 +112,14 @@ describe("routing", () => {
     const res = await get("/ug", {...NAV, cookie: admin});
     expect(res.status).toBe(301);
     expect(res.headers.get("location")).toBe("/ug/");
+  });
+  it("Better Auth's admin endpoints are closed, for admins too", async () => {
+    const admin = await signIn("admin@example.org");
+    const res = await app.fetch(new Request("http://example.com/auth/admin/set-role", {
+      method: "POST", headers: {"content-type": "application/json", origin: "http://example.com", cookie: admin},
+      body: JSON.stringify({userId: "x", role: "admin"})
+    }), env);
+    expect(res.status).toBe(404);
   });
   it("/auth/* is reachable without a session", async () => {
     const res = await get("/auth/get-session");

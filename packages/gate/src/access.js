@@ -5,9 +5,9 @@
 // client runtime (_observablehq/… except the search index, and _npm/…) is public within a site
 // that has any public page, so those pages work for anonymous visitors; it holds no project code
 // or data. A site's own modules (_import/…), data (_file/…) and search index follow the site's
-// rule. (Until `observatory check` writes a manifest of each file's pages, an exception covers
-// only the paths it matches, so a page opened by an exception can't load data its site keeps
-// closed. That fails closed.)
+// rule. (Until `observatory check` writes a manifest of each file's pages, exceptions can only
+// make a page public (config.js), and cover only the paths they match, so a page opened by an
+// exception can't load data its site keeps closed. That fails closed.)
 //
 // The order of checks, the same for every path:
 //   1. a path whose rule is "disabled" is refused to everyone, admins too (404);
@@ -30,16 +30,23 @@ export function globToRegExp(glob) {
   return new RegExp(`^${re}$`);
 }
 
-/** Strip Framework cleanUrl suffixes so `ug/plan`, `ug/plan.html` and `ug/plan/index.html` test alike. */
+/**
+ * One name for every URL that serves the same page, so a rule can't be missed through an
+ * alias: `ug/plan`, `ug/plan/`, `ug/plan.html`, `ug/plan/index`, `ug/plan/index.html` all
+ * become `ug/plan`, and `index.html`, `index` and `` become ``.
+ */
 export function pageKey(path) {
-  if (path.endsWith("/index.html")) return path.slice(0, -"/index.html".length);
-  if (path === "index.html") return "";
-  if (path.endsWith(".html")) return path.slice(0, -".html".length);
-  return path;
+  let key = path;
+  if (key.endsWith(".html")) key = key.slice(0, -".html".length);
+  if (key === "index") return "";
+  if (key.endsWith("/index")) key = key.slice(0, -"/index".length);
+  if (key.endsWith("/")) key = key.slice(0, -1);
+  return key;
 }
 
 const RUNTIME = /^(?:_observablehq\/|_npm\/)/;
-const SEARCH_INDEX = "_observablehq/minisearch.json";
+// Framework writes the search index as _observablehq/minisearch.<hash>.json.
+const SEARCH_INDEX = /^_observablehq\/minisearch(?:\.[0-9a-z]+)?\.json$/i;
 
 export function compileAccess(config) {
   // Longest path first, so /ug/ wins over / for ug/….
@@ -59,7 +66,7 @@ export function compileAccess(config) {
     const key = pageKey(path);
     for (const e of exceptions) if (e.re.test(path) || e.re.test(key)) return {site, rule: e.allow};
     const inSite = path.slice(site.prefix.length);
-    if (sitePublic.get(site) && RUNTIME.test(inSite) && inSite !== SEARCH_INDEX) return {site, rule: "public"};
+    if (sitePublic.get(site) && RUNTIME.test(inSite) && !SEARCH_INDEX.test(inSite)) return {site, rule: "public"};
     return {site, rule: site.access};
   };
 }

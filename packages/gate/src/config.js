@@ -44,9 +44,14 @@ export function loadConfig(raw) {
     if (paths.has(s.path)) throw new Error(`sites: path ${s.path} is used twice`);
     paths.add(s.path);
   }
+  // Exceptions can only open a page to the public (v1). A stricter exception would close the
+  // page but not its data, modules or search text, which follow the site; that needs the
+  // manifest of each file's pages from `observatory check`, which doesn't exist yet. A public
+  // exception fails closed instead: the page opens, and data its site keeps closed stays closed.
   const exceptions = (raw.access ?? []).map((e, i) => {
     if (typeof e?.match !== "string" || !e.match || e.match.startsWith("/")) throw new Error(`access[${i}].match: a path glob without a leading "/"`);
-    return {match: e.match, allow: access(e.allow, `access[${i}].allow`)};
+    if (e.allow !== "public") throw new Error(`access[${i}].allow: only "public" for now; to close part of a site, make it a site of its own`);
+    return {match: e.match, allow: "public"};
   });
   const auth = raw.auth ?? {};
   // An admin condition can't be "an admin": that would be circular.
