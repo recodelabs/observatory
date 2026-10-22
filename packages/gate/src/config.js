@@ -54,10 +54,29 @@ export function loadConfig(raw) {
     return {match: e.match, allow: "public"};
   });
   const auth = raw.auth ?? {};
+  // Keycloak realms (or any OpenID Connect provider). Each one's client secret is the Worker
+  // secret OIDC_<ID>_SECRET (upper case, - as _), never in the config.
+  const oidc = (auth.oidc ?? []).map((p, i) => {
+    const where = `auth.oidc[${i}]`;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(p?.id ?? "") || p.id === "email") throw new Error(`${where}.id: lowercase letters, digits and - (not "email")`);
+    let issuer;
+    try { issuer = new URL(p.issuer); } catch { throw new Error(`${where}.issuer: the realm's URL, e.g. https://auth.example.org/realms/uga`); }
+    if (issuer.protocol !== "https:" && issuer.hostname !== "localhost") throw new Error(`${where}.issuer: https`);
+    return {id: p.id, name: p.name ?? p.id, issuer: issuer.href.replace(/\/$/, ""), clientId: p.clientId ?? "observatory",
+      secretName: `OIDC_${p.id.toUpperCase().replaceAll("-", "_")}_SECRET`};
+  });
+  const ids = new Set();
+  for (const p of oidc) {
+    if (ids.has(p.id)) throw new Error(`auth.oidc: id ${p.id} is used twice`);
+    ids.add(p.id);
+  }
   // An admin condition can't be "an admin": that would be circular.
   const admins = (auth.admins ?? []).map((c, i) => condition(c, `auth.admins[${i}]`, {allowRole: false}));
   const sitesFolder = raw.cloudflare?.sites ?? "_site/";
   if (!/^(?:[A-Za-z0-9_.-]+\/)+$/.test(sitesFolder) || sitesFolder.split("/").includes("..")) throw new Error(`cloudflare.sites: a bucket folder ending in "/"`);
+  // Every {oidc: …} condition must name a configured provider.
+  const named = [...sites.flatMap((s) => Array.isArray(s.access) ? s.access : []), ...admins].filter((c) => "oidc" in c);
+  for (const c of named) if (!ids.has(c.oidc)) throw new Error(`condition ${JSON.stringify(c)}: no provider "${c.oidc}" in auth.oidc`);
   return {
     sites,
     exceptions,
@@ -66,7 +85,10 @@ export function loadConfig(raw) {
     auth: {
       sessionDays: auth.sessionDays ?? 30,
       allowedDomains: (auth.email?.allowedDomains ?? []).map((d) => d.toLowerCase()),
-      admins
+      admins,
+      oidc,
+      oidcSessionHours: auth.oidcSessionHours ?? 12,
+      claimsMaxAge: auth.claimsMaxAge ?? 900
     },
     mail: {from: auth.email?.from ?? "observatory@localhost", adminNotify: auth.email?.adminNotify ?? null}
   };

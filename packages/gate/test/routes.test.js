@@ -65,7 +65,7 @@ describe("routing", () => {
     await setStatus("p@example.org", "active");
     res = await get("/", {...NAV, cookie});
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("private, no-cache");
+    expect(res.headers.get("cache-control")).toBe("private, no-store"); // a page with the account bar
     res = await get("/_file/data/x.abc.parquet", {cookie, range: "bytes=0-3"});
     expect(res.status).toBe(206);
     expect(res.headers.get("content-range")).toBe("bytes 0-3/10");
@@ -83,7 +83,7 @@ describe("routing", () => {
     await verify("t@team.example");
     const page = await get("/ug/", {...NAV, cookie: team});
     expect(page.status).toBe(200);
-    expect(await page.text()).toBe("<h1>uganda</h1>");
+    expect(await page.text()).toMatch(/^<h1>uganda<\/h1>/);
     expect((await get("/ug/_file/data/t.parquet", {cookie: team})).status).toBe(200);
 
     const other = await signUp("o@example.org");
@@ -136,5 +136,32 @@ describe("routing", () => {
     const res = await exports.default.fetch("http://example.com/team/coverage", {headers: NAV, redirect: "manual"});
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/_obs/login?next=%2Fteam%2Fcoverage");
+  });
+});
+
+describe("account bar", () => {
+  it("shows the signed-in user and sign-out on gated and public pages; admins also get Manage users", async () => {
+    const user = await signIn("p@example.org");
+    let html = await (await get("/", {...NAV, cookie: user})).text();
+    expect(html).toContain('id="obs-account"');
+    expect(html).toContain("p@example.org");
+    expect(html).toContain('action="/_obs/signout"');
+    expect(html).not.toContain("Manage users");
+    const about = await get("/about", {...NAV, cookie: user});
+    expect(await about.text()).toContain('id="obs-account"');
+    expect(about.headers.get("cache-control")).toBe("private, no-store");
+
+    const admin = await signIn("admin@example.org");
+    html = await (await get("/", {...NAV, cookie: admin})).text();
+    expect(html).toContain('href="/_obs/admin"');
+  });
+  it("leaves anonymous pages, data and non-HTML files alone", async () => {
+    const anon = await get("/about", NAV);
+    expect(await anon.text()).not.toContain("obs-account");
+    expect(anon.headers.get("cache-control")).toBe("public, max-age=300");
+    const user = await signIn("p@example.org");
+    const data = await get("/_file/data/x.abc.parquet", {cookie: user});
+    expect(data.headers.get("content-type")).toBe("application/vnd.apache.parquet");
+    expect((await data.arrayBuffer()).byteLength).toBe(10);
   });
 });

@@ -1,13 +1,53 @@
 import {betterAuth} from "better-auth";
 import {magicLink} from "better-auth/plugins/magic-link";
 import {admin} from "better-auth/plugins/admin";
+import {genericOAuth} from "better-auth/plugins/generic-oauth";
 import {Kysely} from "kysely";
 import {D1Dialect} from "kysely-d1";
 import {sendMail, MailError} from "./mail.js";
 
+/** The payload of a JWT, unverified (the caller trusts where the token came from), or null. */
+export function jwtPayload(token) {
+  try {
+    const part = String(token).split(".")[1];
+    const json = atob(part.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(part.length / 4) * 4, "="));
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(json, (ch) => ch.charCodeAt(0))));
+  } catch {
+    return null;
+  }
+}
+
+const strings = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+
+/**
+ * Store the groups and realm roles from an OIDC provider account's tokens: the ID token, or the
+ * access token when a refresh brought no new ID token (Keycloak's mappers put both claims in
+ * both). The tokens come from the provider's token endpoint, over TLS with the client secret,
+ * at sign-in (where Better Auth also checks the ID token against the provider's keys) or at a
+ * refresh; nothing a browser sends is read here.
+ */
+async function storeClaims(db, providerIds, account) {
+  if (!account || !providerIds.has(account.providerId)) return;
+  const claims = jwtPayload(account.idToken) ?? jwtPayload(account.accessToken);
+  if (!claims || claims.sub !== account.accountId) return;
+  const row = {providerId: account.providerId, subject: account.accountId, userId: account.userId,
+    groups: JSON.stringify(strings(claims.groups)), roles: JSON.stringify(strings(claims.realm_roles)), refreshedAt: Date.now()};
+  await db.insertInto("oidcClaims").values(row)
+    .onConflict((oc) => oc.columns(["providerId", "subject"]).doUpdateSet({userId: row.userId, groups: row.groups, roles: row.roles, refreshedAt: row.refreshedAt}))
+    .execute();
+}
+
 /** One Better Auth instance per request: Workers only expose bindings at request time. */
 export function createAuth(env, config) {
   const db = new Kysely({dialect: new D1Dialect({database: env.DB})});
+  // Keycloak is optional: providers whose client secret isn't set are left out (and logged), and
+  // with none the gate is email sign-in only.
+  const providers = config.auth.oidc.filter((p) => {
+    if (env[p.secretName]) return true;
+    console.error(`[gate auth] ${p.id}: no ${p.secretName} secret; sign-in with ${p.name} is off`);
+    return false;
+  });
+  const providerIds = new Set(providers.map((p) => p.id));
   const auth = betterAuth({
     baseURL: env.BASE_URL,
     basePath: "/auth",
@@ -38,7 +78,14 @@ export function createAuth(env, config) {
         }
       }
     },
-    session: {expiresIn: config.auth.sessionDays * 24 * 60 * 60, updateAge: 24 * 60 * 60},
+    session: {
+      expiresIn: config.auth.sessionDays * 24 * 60 * 60, updateAge: 24 * 60 * 60,
+      // How the session was signed in: "email" or an OIDC provider id (see session.create below).
+      additionalFields: {provider: {type: "string", required: false, input: false}}
+    },
+    // An OIDC sign-in with an address that already has an account joins that account only if
+    // the provider says the address is verified (Better Auth's default for untrusted providers).
+    account: {accountLinking: {enabled: true, trustedProviders: []}},
     rateLimit: {enabled: true, storage: "database", window: 60, max: 60,
       customRules: {"/sign-in/email": {window: 60, max: 10}, "/sign-in/magic-link": {window: 60, max: 5}, "/sign-up/email": {window: 60, max: 5}}},
     user: {
@@ -47,6 +94,22 @@ export function createAuth(env, config) {
       }
     },
     databaseHooks: {
+      session: {
+        create: {
+          // Stamp each session with how it was signed in. Only the OAuth callback for a configured
+          // provider makes an OIDC session; every other way in (password, magic link, email
+          // confirmation) is "email".
+          before: async (session, ctx) => {
+            const id = ctx?.params?.id;
+            const oidc = typeof ctx?.path === "string" && ctx.path.startsWith("/callback/") && providerIds.has(id);
+            return {data: {...session, provider: oidc ? id : "email"}};
+          }
+        }
+      },
+      account: {
+        create: {after: (account) => storeClaims(db, providerIds, account)},
+        update: {after: (account) => storeClaims(db, providerIds, account)}
+      },
       user: {
         create: {
           // Everyone starts as a pending user. doorman made the first account an active admin;
@@ -71,6 +134,14 @@ export function createAuth(env, config) {
     },
     plugins: [
       admin({defaultRole: "user", adminRoles: ["admin"]}),
+      ...(providers.length ? [genericOAuth({config: providers.map((p) => ({
+        providerId: p.id,
+        discoveryUrl: `${p.issuer}/.well-known/openid-configuration`,
+        clientId: p.clientId,
+        clientSecret: env[p.secretName],
+        scopes: ["openid", "email", "profile"],
+        pkce: true
+      }))})] : []),
       magicLink({
         disableSignUp: true,
         sendMagicLink: async ({email, url}) => {

@@ -8,7 +8,7 @@ pending.get("/pending", (c) => {
   const s = c.get("session");
   const config = c.get("config");
   if (!s?.user) return c.redirect("/_obs/login", 302);
-  const status = statusOf(config, s.user);
+  const status = statusOf(config, s.user, s.provider);
   if (status === "active") return c.redirect("/", 302);
   const text = status === "disabled"
     ? "Your account has been disabled. Contact an administrator if you think this is a mistake."

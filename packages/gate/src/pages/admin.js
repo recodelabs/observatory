@@ -16,7 +16,7 @@ admin.use("/admin", (c, next) => requireAdmin(c, next));
 // for admins only (made one here, or named by auth.admins), and anyone else gets a plain 404.
 async function requireAdmin(c, next) {
   const s = c.get("session");
-  if (!s?.user || !isAdmin(c.get("config"), s.user)) return c.text("Not found", 404);
+  if (!s?.user || !isAdmin(c.get("config"), s)) return c.text("Not found", 404);
   await next();
 }
 
@@ -31,14 +31,16 @@ admin.get("/admin", async (c) => {
   const byConfig = (u) => config.auth.admins.some((cond) => holds(cond, {user: u}));
   const rows = users.map((u) => {
     const self = u.id === s.user.id;
-    const status = statusOf(config, u);
+    const keycloak = u.providers.some((p) => config.auth.oidc.some((o) => o.id === p));
+    const status = keycloak && u.status !== "disabled" ? "active" : statusOf(config, u);
     const role = byConfig(u) ? "admin (config)" : u.role;
     const actions = [
       status !== "active" ? btn(status === "pending" ? "approve" : "enable", u.id, status === "pending" ? "Approve" : "Enable") : (!self ? btn("disable", u.id, "Disable") : ""),
       byConfig(u) ? "" : u.role === "admin" ? (!self ? btn("remove-admin", u.id, "Remove admin") : "") : btn("make-admin", u.id, "Make admin"),
       !self ? btn("delete", u.id, "Delete") : ""
     ].join("");
-    return `<tr><td>${escape(u.email)}<br><span class="muted">${escape(u.name)}${u.emailVerified ? "" : " · email not confirmed"}</span></td><td>${escape(status)}</td><td>${escape(role)}</td><td>${fmt(u.createdAt)}</td><td>${fmt(u.lastSignIn)}</td><td>${actions}</td></tr>`;
+    const how = [u.providers.join(", ") || "email link", u.groups.length ? u.groups.join(" ") : ""].filter(Boolean).join(" · ");
+    return `<tr><td>${escape(u.email)}<br><span class="muted">${escape(u.name)}${u.emailVerified ? "" : " · email not confirmed"} · ${escape(how)}</span></td><td>${escape(status)}</td><td>${escape(role)}</td><td>${fmt(u.createdAt)}</td><td>${fmt(u.lastSignIn)}</td><td>${actions}</td></tr>`;
   }).join("");
   const body = `<table><thead><tr><th>User</th><th>Status</th><th>Role</th><th>Created</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows}</tbody></table>
 <p class="muted">Signed in as ${escape(s.user.email)} · <a href="/">Site</a></p><form method="post" action="/_obs/signout"><button class="quiet">Sign out</button></form>`;

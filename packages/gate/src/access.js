@@ -75,8 +75,9 @@ const domainOf = (email) => String(email ?? "").toLowerCase().split("@")[1] ?? "
 
 /**
  * Whether one condition holds for a user. `who` is {user, claims, admin}: claims maps a
- * provider id to {groups, roles} from that provider's account (Keycloak; empty until sign-in
- * with it exists). Email conditions count only a verified address.
+ * provider id to {groups, roles} from that provider's account, and holds only the provider the
+ * session was signed in with (session.js), so an email session never carries Keycloak groups.
+ * Email conditions count only a verified address.
  */
 export function holds(cond, who) {
   const {user, claims = new Map(), admin = false} = who;
@@ -90,21 +91,28 @@ export function holds(cond, who) {
 
 /**
  * A user's status, after the config: "disabled" (stored, wins over everything), "active", or
- * "pending". A verified address in `auth.email.allowedDomains`, or one that an `auth.admins`
- * email condition names, is active without approval; that is how the first admin gets in.
+ * "pending". A session signed in through Keycloak (`provider` other than "email") is active:
+ * Keycloak decided who they are. A verified address in `auth.email.allowedDomains`, or one that
+ * an `auth.admins` email condition names, is active without approval; that is how the first
+ * admin gets in.
  */
-export function statusOf(config, user, claims = new Map()) {
+export function statusOf(config, user, provider = "email") {
   if (!user) return null;
   if (user.status === "disabled") return "disabled";
+  if (provider !== "email") return "active";
   if (user.status === "active") return "active";
   if (user.emailVerified && config.auth.allowedDomains.includes(domainOf(user.email))) return "active";
-  if (config.auth.admins.some((c) => ("email" in c || "emailDomain" in c) && holds(c, {user, claims}))) return "active";
+  if (config.auth.admins.some((c) => ("email" in c || "emailDomain" in c) && holds(c, {user}))) return "active";
   return user.status ?? "pending";
 }
 
-/** Whether an active user is an admin: made one on the admin page (D1), or by `auth.admins`. */
-export function isAdmin(config, user, claims = new Map()) {
-  if (statusOf(config, user, claims) !== "active") return false;
+/**
+ * Whether an active user is an admin: made one on the admin page (D1), or by `auth.admins`.
+ * `who` is {user, claims, provider} from session.js.
+ */
+export function isAdmin(config, who) {
+  const {user, claims = new Map(), provider = "email"} = who ?? {};
+  if (statusOf(config, user, provider) !== "active") return false;
   return user.role === "admin" || config.auth.admins.some((c) => holds(c, {user, claims}));
 }
 
@@ -127,17 +135,18 @@ export function describeRule(rule) {
 
 /**
  * The decision for one request: {kind: "serve", visibility} | {kind: "notfound"} |
- * {kind: "login"} | {kind: "pending"} | {kind: "refused", reason}. `user` is null without a
- * session; `claims` as for holds().
+ * {kind: "login"} | {kind: "pending"} | {kind: "refused", reason}. `who` is null without a
+ * session, else {user, claims, provider} from session.js.
  */
-export function decide(config, rule, user, claims = new Map()) {
+export function decide(config, rule, who) {
   if (rule === "disabled") return {kind: "notfound"};
   if (rule === "public") return {kind: "serve", visibility: "public"};
-  if (!user) return {kind: "login"};
-  const status = statusOf(config, user, claims);
+  if (!who?.user) return {kind: "login"};
+  const {user, claims = new Map(), provider = "email"} = who;
+  const status = statusOf(config, user, provider);
   if (status === "disabled") return {kind: "refused", reason: "disabled"};
   if (status !== "active") return {kind: "pending"};
-  const admin = isAdmin(config, user, claims);
+  const admin = isAdmin(config, who);
   if (admin || allows(rule, {user, claims, admin})) return {kind: "serve", visibility: "private"};
   return {kind: "refused", reason: "rule"};
 }

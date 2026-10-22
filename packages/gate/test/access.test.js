@@ -10,7 +10,8 @@ const config = loadConfig({
     {name: "off", path: "/off/", access: "disabled"}
   ],
   access: [{match: "team/about", allow: "public"}],
-  auth: {admins: [{email: "boss@ona.io"}, {oidc: "uga", group: "/dashboards-admins"}], email: {allowedDomains: ["allowed.example"]}}
+  auth: {admins: [{email: "boss@ona.io"}, {oidc: "uga", group: "/dashboards-admins"}], email: {allowedDomains: ["allowed.example"]},
+    oidc: [{id: "uga", name: "Uganda", issuer: "https://auth.example.org/realms/uga"}]}
 });
 const resolve = compileAccess(config);
 const user = (email, extra = {}) => ({email, emailVerified: true, status: "pending", role: "user", ...extra});
@@ -29,7 +30,10 @@ describe("config", () => {
     [{sites: [{name: "a", path: "/"}], access: [{match: "/x", allow: "public"}]}, /leading/],
     [{sites: [{name: "a", path: "/"}], access: [{match: "x", allow: "signed-in"}]}, /only "public"/],
     [{sites: [{name: "a", path: "/"}], access: [{match: "x", allow: "disabled"}]}, /only "public"/],
-    [{sites: [{name: "a", path: "/"}], cloudflare: {sites: "../x/"}}, /cloudflare.sites/]
+    [{sites: [{name: "a", path: "/"}], cloudflare: {sites: "../x/"}}, /cloudflare.sites/],
+    [{sites: [{name: "a", path: "/", access: [{oidc: "nope", group: "/g"}]}]}, /no provider "nope"/],
+    [{sites: [{name: "a", path: "/"}], auth: {oidc: [{id: "email", issuer: "https://x.org/r"}]}}, /not "email"/],
+    [{sites: [{name: "a", path: "/"}], auth: {oidc: [{id: "k", issuer: "http://x.org/r"}]}}, /https/]
   ])("rejects %j", (raw, error) => {
     expect(() => loadConfig(raw)).toThrow(error);
   });
@@ -83,28 +87,42 @@ describe("who is who", () => {
     expect(statusOf(config, user("boss@ona.io", {status: "disabled"}))).toBe("disabled");
     expect(statusOf(config, user("x@elsewhere.org"))).toBe("pending");
   });
+  it("a Keycloak session is active; stored disabled still wins", () => {
+    expect(statusOf(config, user("x@elsewhere.org"), "uga")).toBe("active");
+    expect(statusOf(config, user("x@elsewhere.org", {status: "disabled"}), "uga")).toBe("disabled");
+  });
   it("admins: by config (verified email, Keycloak group) or by stored role, and only while active", () => {
-    expect(isAdmin(config, user("boss@ona.io"))).toBe(true);
-    expect(isAdmin(config, user("boss@ona.io", {emailVerified: false}))).toBe(false);
-    expect(isAdmin(config, user("x@y.z", {status: "active"}), new Map([["uga", {groups: ["/dashboards-admins"]}]]))).toBe(true);
-    expect(isAdmin(config, user("x@y.z", {status: "active", role: "admin"}))).toBe(true);
-    expect(isAdmin(config, user("x@y.z", {status: "disabled", role: "admin"}))).toBe(false);
-    expect(isAdmin(config, user("boss@ona.io", {status: "disabled"}))).toBe(false);
+    const admins = new Map([["uga", {groups: ["/dashboards-admins"]}]]);
+    expect(isAdmin(config, {user: user("boss@ona.io")})).toBe(true);
+    expect(isAdmin(config, {user: user("boss@ona.io", {emailVerified: false})})).toBe(false);
+    expect(isAdmin(config, {user: user("x@y.z"), claims: admins, provider: "uga"})).toBe(true);
+    expect(isAdmin(config, {user: user("x@y.z", {status: "active", role: "admin"})})).toBe(true);
+    expect(isAdmin(config, {user: user("x@y.z", {status: "disabled", role: "admin"})})).toBe(false);
+    expect(isAdmin(config, {user: user("boss@ona.io", {status: "disabled"})})).toBe(false);
+    expect(isAdmin(config, {user: user("x@y.z", {status: "disabled"}), claims: admins, provider: "uga"})).toBe(false);
   });
 });
 
 describe("decide", () => {
   const ug = config.sites[1].access;
   it("follows the order of checks", () => {
-    expect(decide(config, "disabled", user("boss@ona.io"))).toEqual({kind: "notfound"});
+    const w = (u, extra = {}) => ({user: u, ...extra});
+    expect(decide(config, "disabled", w(user("boss@ona.io")))).toEqual({kind: "notfound"});
     expect(decide(config, "public", null)).toEqual({kind: "serve", visibility: "public"});
     expect(decide(config, ug, null)).toEqual({kind: "login"});
-    expect(decide(config, ug, user("x@ona.io", {status: "disabled"}))).toEqual({kind: "refused", reason: "disabled"});
-    expect(decide(config, ug, user("x@elsewhere.org"))).toEqual({kind: "pending"});
-    expect(decide(config, ug, user("boss@ona.io"))).toEqual({kind: "serve", visibility: "private"});
-    expect(decide(config, ug, user("x@elsewhere.org", {status: "active"}))).toEqual({kind: "refused", reason: "rule"});
-    expect(decide(config, ug, user("x@ona.io", {status: "active"}))).toEqual({kind: "serve", visibility: "private"});
-    expect(decide(config, "signed-in", user("x@elsewhere.org", {status: "active"}))).toEqual({kind: "serve", visibility: "private"});
+    expect(decide(config, ug, w(user("x@ona.io", {status: "disabled"})))).toEqual({kind: "refused", reason: "disabled"});
+    expect(decide(config, ug, w(user("x@elsewhere.org")))).toEqual({kind: "pending"});
+    expect(decide(config, ug, w(user("boss@ona.io")))).toEqual({kind: "serve", visibility: "private"});
+    expect(decide(config, ug, w(user("x@elsewhere.org", {status: "active"})))).toEqual({kind: "refused", reason: "rule"});
+    expect(decide(config, ug, w(user("x@ona.io", {status: "active"})))).toEqual({kind: "serve", visibility: "private"});
+    expect(decide(config, "signed-in", w(user("x@elsewhere.org", {status: "active"})))).toEqual({kind: "serve", visibility: "private"});
+  });
+  it("a group counts only in a session signed in with its provider", () => {
+    const ug = config.sites[1].access;
+    const claims = new Map([["uga", {groups: ["/dashboards"]}]]);
+    expect(decide(config, ug, {user: user("x@elsewhere.org"), claims, provider: "uga"})).toEqual({kind: "serve", visibility: "private"});
+    // The same user in an email session: no claims (session.js gives an email session none).
+    expect(decide(config, ug, {user: user("x@elsewhere.org", {status: "active"}), claims: new Map(), provider: "email"})).toEqual({kind: "refused", reason: "rule"});
   });
   it("describes a rule for the 403 page", () => {
     expect(describeRule(ug)).toEqual(["members of the group /dashboards (sign in with uga)", "an account with a verified @ona.io address"]);
