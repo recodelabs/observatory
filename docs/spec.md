@@ -105,9 +105,12 @@ export default {
     uga:  {r2: "uga/"}
   },
 
+  // Each site says who may see it. A site without `access` needs sign-in, so a new site is
+  // never public by accident.
   sites: [
-    {name: "main",   path: "/",    dir: "sites/main",   warehouse: "main"},
-    {name: "uganda", path: "/ug/", dir: "sites/uganda", warehouse: "uga"}
+    {name: "main",   path: "/",    dir: "sites/main",   warehouse: "main", access: "public"},
+    {name: "uganda", path: "/ug/", dir: "sites/uganda", warehouse: "uga",
+     access: [{oidc: "uga", group: "/dashboards"}, {emailDomain: "ona.io"}, {role: "admin"}]}
   ],
 
   auth: {
@@ -119,11 +122,9 @@ export default {
     ]
   },
 
-  // First match wins. Unmatched paths are "signed-in".
-  access: [
-    {match: "ug/**", allow: [{oidc: "uga", group: "/dashboards"}, {emailDomain: "ona.io"}, {role: "admin"}]},
-    {match: "**",    allow: "public"}
-  ]
+  // Optional exceptions within a site, first match wins, e.g. one public page of a
+  // protected site: {match: "ug/about", allow: "public"}.
+  access: []
 };
 ```
 
@@ -165,11 +166,15 @@ doorman's request flow stays. It changes in four ways.
 
 ### 3. Rules by who the user is
 
-- **What `access` can be:**
+- **Where access is set:** on each site (`sites[].access`), with optional per-path
+  exceptions (`access[]`, first match wins). A site without `access` needs sign-in, so a
+  new site is never public by accident. In the ICR, the Nigeria demo site is `public` and
+  the login applies to `/ug/` and new sites.
+- **What access can be:**
   - `"public"`
   - `"signed-in"`
   - `"disabled"`
-  - a list of conditions under `allow`, of which any one is enough.
+  - a list of conditions, of which any one is enough.
 - **The conditions:**
   - `{oidc, group}` and `{oidc, role}`: a user who signed in with that provider and is in
     that group or has that realm role;
