@@ -53,3 +53,8 @@ test("pendingMigrations compares the gate's files with what the database recorde
     rmSync(root, {recursive: true, force: true});
   }
 });
+
+test("output() keeps a failing command's stdout in its error", async () => {
+  const {output} = await import("../src/run.js");
+  assert.throws(() => output(process.execPath, ["-e", "console.log('no such table: d1_migrations'); process.exit(1)"]), /no such table: d1_migrations/);
+});
