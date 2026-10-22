@@ -124,8 +124,12 @@ export function createApp(rawConfig) {
         return html(c, page({config, title: "No access", body: body + `<form method="post" action="/_obs/signout"><button type="submit" class="quiet">Sign out</button></form>`}), 403);
       }
       default: {
-        const res = await serveFromR2(c.env.SITE, config.sitesFolder, request, path, d.visibility, notFoundKey);
-        if (!nav || !user || statusOf(config, user, who.provider) !== "active" || request.method !== "GET") return res;
+        const personal = nav && user && request.method === "GET" && statusOf(config, user, who.provider) === "active";
+        if (!personal) return serveFromR2(c.env.SITE, config.sitesFolder, request, path, d.visibility, notFoundKey);
+        // A page with the account bar is always sent whole: a 304 against the copy the browser
+        // kept (perhaps from before signing in) would show that copy, without the bar.
+        const fresh = new Request(request.url, {headers: new Headers([...request.headers].filter(([k]) => !/^if-/i.test(k)))});
+        const res = await serveFromR2(c.env.SITE, config.sitesFolder, fresh, path, d.visibility, notFoundKey);
         return withAccountBar(res, accountBar(who, {admin: isAdmin(config, who)}));
       }
     }

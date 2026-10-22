@@ -20,7 +20,8 @@ const call = (path, init = {}) => app.fetch(new Request("http://example.com" + p
 const NAV = {accept: "text/html"};
 
 // The fake provider's state: who signs in next, and how the token endpoint answers.
-const provider = {sub: "kc-user-1", email: "kc@partner.example", groups: ["/dashboards"], refresh: "ok", nonce: null, calls: []};
+const provider = {sub: "kc-user-1", email: "kc@partner.example", groups: ["/dashboards"], refresh: "ok", nonce: null, calls: [],
+  refreshIdToken: true};
 let key, jwk;
 const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 const enc = (obj) => b64url(new TextEncoder().encode(JSON.stringify(obj)));
@@ -53,8 +54,11 @@ beforeAll(async () => {
       const body = new URLSearchParams(typeof init?.body === "string" ? init.body : await new Response(init?.body).text());
       provider.calls.push(body.get("grant_type"));
       if (body.get("grant_type") === "refresh_token" && provider.refresh !== "ok") return json({error: "invalid_grant"}, 400);
-      return json({access_token: "at-" + Math.random(), refresh_token: "rt-" + Math.random(), token_type: "Bearer",
-        expires_in: 300, id_token: await idToken(body.get("grant_type") === "refresh_token" ? {nonce: undefined} : {})});
+      // Like Keycloak: the access token is a JWT that carries the groups too.
+      const refreshing = body.get("grant_type") === "refresh_token";
+      return json({access_token: await idToken({nonce: undefined, aud: "account", jti: String(Math.random())}),
+        refresh_token: "rt-" + Math.random(), token_type: "Bearer", expires_in: 300,
+        ...(refreshing && !provider.refreshIdToken ? {} : {id_token: await idToken(refreshing ? {nonce: undefined} : {})})});
     }
     return json({error: "not found"}, 404);
   };
@@ -82,6 +86,7 @@ async function signInWithProvider(next = "/ug/") {
 }
 
 const claimsRow = () => env.DB.prepare(`select * from "oidcClaims" where "providerId" = 'kc' and subject = ?`).bind(provider.sub).first();
+const makeStale = () => env.DB.prepare(`update "oidcClaims" set "refreshedAt" = ?`).bind(Date.now() - 901e3).run();
 
 describe("sign-in with an OIDC provider", () => {
   it("shows a button for the provider on the login page", async () => {
@@ -128,6 +133,48 @@ describe("sign-in with an OIDC provider", () => {
     const res = await call("/ug/", {headers: {...NAV, cookie}});
     expect(res.status).toBe(302);
     expect(await env.DB.prepare("select id from session where token = ?").bind(token).first()).toBeNull();
+  });
+  it("on refresh, reads the groups from the new access token, never the kept ID token", async () => {
+    const cookie = await signInWithProvider();
+    provider.refreshIdToken = false;
+    provider.groups = [];
+    await makeStale();
+    try {
+      expect((await call("/ug/", {headers: {...NAV, cookie}})).status).toBe(403);
+    } finally {
+      provider.refreshIdToken = true;
+      provider.groups = ["/dashboards"];
+    }
+  });
+  it("a failed refresh ends every session of that account", async () => {
+    const first = await signInWithProvider();
+    const second = await signInWithProvider();
+    provider.refresh = "fail";
+    await makeStale();
+    try {
+      expect((await call("/ug/", {headers: {...NAV, cookie: first}})).status).toBe(302);
+      expect((await call("/ug/", {headers: {...NAV, cookie: second}})).status).toBe(302);
+    } finally {
+      provider.refresh = "ok";
+    }
+  });
+  it("a Keycloak user made again with the same address doesn't get the old one's groups", async () => {
+    const old = await signInWithProvider();
+    provider.sub = "kc-user-2";
+    provider.groups = [];
+    try {
+      const remade = await signInWithProvider();
+      expect((await call("/ug/", {headers: {...NAV, cookie: remade}})).status).toBe(403);
+      expect((await call("/ug/", {headers: {...NAV, cookie: old}})).status).toBe(200);
+    } finally {
+      provider.sub = "kc-user-1";
+      provider.groups = ["/dashboards"];
+    }
+  });
+  it("sign-out stays local and hands out no ID token", async () => {
+    const cookie = await signInWithProvider();
+    const res = await call("/auth/sign-out", {method: "POST", headers: {cookie, origin: "http://example.com", "content-type": "application/json"}, body: "{}"});
+    expect(await res.text()).not.toMatch(/id_token_hint|eyJ/);
   });
   it("keeps the provider's tokens away from the browser", async () => {
     const cookie = await signInWithProvider();

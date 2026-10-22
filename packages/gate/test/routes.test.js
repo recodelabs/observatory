@@ -155,6 +155,14 @@ describe("account bar", () => {
     html = await (await get("/", {...NAV, cookie: admin})).text();
     expect(html).toContain('href="/_obs/admin"');
   });
+  it("sends a signed-in user the whole page even when the browser has a copy", async () => {
+    const anon = await get("/about", NAV);
+    expect(anon.headers.get("vary")).toBe("cookie");
+    const user = await signIn("p@example.org");
+    const res = await get("/about", {...NAV, cookie: user, "if-none-match": anon.headers.get("etag")});
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('id="obs-account"');
+  });
   it("leaves anonymous pages, data and non-HTML files alone", async () => {
     const anon = await get("/about", NAV);
     expect(await anon.text()).not.toContain("obs-account");

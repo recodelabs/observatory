@@ -19,22 +19,31 @@ export function jwtPayload(token) {
 
 const strings = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
 
-/**
- * Store the groups and realm roles from an OIDC provider account's tokens: the ID token, or the
- * access token when a refresh brought no new ID token (Keycloak's mappers put both claims in
- * both). The tokens come from the provider's token endpoint, over TLS with the client secret,
- * at sign-in (where Better Auth also checks the ID token against the provider's keys) or at a
- * refresh; nothing a browser sends is read here.
- */
-async function storeClaims(db, providerIds, account) {
-  if (!account || !providerIds.has(account.providerId)) return;
-  const claims = jwtPayload(account.idToken) ?? jwtPayload(account.accessToken);
-  if (!claims || claims.sub !== account.accountId) return;
-  const row = {providerId: account.providerId, subject: account.accountId, userId: account.userId,
-    groups: JSON.stringify(strings(claims.groups)), roles: JSON.stringify(strings(claims.realm_roles)), refreshedAt: Date.now()};
+/** The groups and realm roles in a token's claims, as stored. */
+export function claimsRow(providerId, subject, userId, claims) {
+  return {providerId, subject, userId, groups: JSON.stringify(strings(claims.groups)),
+    roles: JSON.stringify(strings(claims.realm_roles)), refreshedAt: Date.now(), refreshingUntil: 0};
+}
+
+export async function saveClaims(db, row) {
   await db.insertInto("oidcClaims").values(row)
-    .onConflict((oc) => oc.columns(["providerId", "subject"]).doUpdateSet({userId: row.userId, groups: row.groups, roles: row.roles, refreshedAt: row.refreshedAt}))
+    .onConflict((oc) => oc.columns(["providerId", "subject"]).doUpdateSet({userId: row.userId, groups: row.groups,
+      roles: row.roles, refreshedAt: row.refreshedAt, refreshingUntil: 0}))
     .execute();
+}
+
+/**
+ * At sign-in through a provider's callback, store the groups and realm roles from the ID token
+ * Better Auth has just received from the token endpoint and checked against the provider's keys.
+ * Refreshes are handled in session.js from the newly issued tokens; account updates anywhere else
+ * write nothing (a refresh's merged account keeps the old ID token).
+ */
+async function storeClaimsAtSignIn(db, providerIds, account, ctx) {
+  if (!account || !providerIds.has(account.providerId)) return;
+  if (!(typeof ctx?.path === "string" && ctx.path.startsWith("/callback/"))) return;
+  const claims = jwtPayload(account.idToken);
+  if (!claims || claims.sub !== account.accountId) return;
+  await saveClaims(db, claimsRow(account.providerId, account.accountId, account.userId, claims));
 }
 
 /** One Better Auth instance per request: Workers only expose bindings at request time. */
@@ -81,7 +90,10 @@ export function createAuth(env, config) {
     session: {
       expiresIn: config.auth.sessionDays * 24 * 60 * 60, updateAge: 24 * 60 * 60,
       // How the session was signed in: "email" or an OIDC provider id (see session.create below).
-      additionalFields: {provider: {type: "string", required: false, input: false}}
+      additionalFields: {
+        provider: {type: "string", required: false, input: false},
+        subject: {type: "string", required: false, input: false}
+      }
     },
     // An OIDC sign-in with an address that already has an account joins that account only if
     // the provider says the address is verified (Better Auth's default for untrusted providers).
@@ -98,17 +110,26 @@ export function createAuth(env, config) {
         create: {
           // Stamp each session with how it was signed in. Only the OAuth callback for a configured
           // provider makes an OIDC session; every other way in (password, magic link, email
-          // confirmation) is "email".
+          // confirmation) is "email". An OIDC session is also bound to the provider account the
+          // callback has just signed in: the user's account for that provider updated last, which
+          // the callback writes right before it creates the session. If a user has two accounts
+          // for one provider (a Keycloak user deleted and made again with the same address), each
+          // session stays with its own subject and its own claims.
           before: async (session, ctx) => {
             const id = ctx?.params?.id;
             const oidc = typeof ctx?.path === "string" && ctx.path.startsWith("/callback/") && providerIds.has(id);
-            return {data: {...session, provider: oidc ? id : "email"}};
+            if (!oidc) return {data: {...session, provider: "email", subject: null}};
+            const account = await db.selectFrom("account").select("accountId")
+              .where("userId", "=", session.userId).where("providerId", "=", id)
+              .orderBy("updatedAt", "desc").limit(1).executeTakeFirst();
+            if (!account) return false;
+            return {data: {...session, provider: id, subject: account.accountId}};
           }
         }
       },
       account: {
-        create: {after: (account) => storeClaims(db, providerIds, account)},
-        update: {after: (account) => storeClaims(db, providerIds, account)}
+        create: {after: (account, ctx) => storeClaimsAtSignIn(db, providerIds, account, ctx)},
+        update: {after: (account, ctx) => storeClaimsAtSignIn(db, providerIds, account, ctx)}
       },
       user: {
         create: {
@@ -140,7 +161,10 @@ export function createAuth(env, config) {
         clientId: p.clientId,
         clientSecret: env[p.secretName],
         scopes: ["openid", "email", "profile"],
-        pkce: true
+        pkce: true,
+        // Sign-out is local to the gate. Better Auth's provider logout would hand the browser a
+        // logout URL carrying the ID token (id_token_hint).
+        disableProviderLogout: true
       }))})] : []),
       magicLink({
         disableSignUp: true,

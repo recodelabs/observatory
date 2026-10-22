@@ -1,3 +1,5 @@
+import {jwtPayload, claimsRow, saveClaims} from "./auth.js";
+
 export class SessionUnavailable extends Error {
   constructor(cause) { super("session storage unavailable"); this.cause = cause; }
 }
@@ -29,45 +31,53 @@ export async function readSession(auth, request) {
 /**
  * The signed-in user as the access rules see them: {user, session, provider, claims}, or null.
  *
- * `provider` is how the session was signed in: "email", or an OIDC provider id (auth.js stamps
- * it on the session). `claims` maps that one provider to the {groups, roles} stored from its
- * tokens; an email session gets none, even if the same user also has a Keycloak account.
+ * `provider` is how the session was signed in: "email", or an OIDC provider id; an OIDC session
+ * also names its provider account (`session.subject`, auth.js). `claims` maps that one provider
+ * to the {groups, roles} stored for that one account; an email session gets none, even if the
+ * same user also has a Keycloak account.
  *
  * An OIDC session ends (and null is returned) when:
  *   - it is older than auth.oidcSessionHours, however much it was used;
- *   - its provider is no longer in the config, or no claims were stored for it;
+ *   - its provider is no longer in the config, or its account or claims are gone;
  *   - its claims are older than auth.claimsMaxAge and the refresh with the provider's refresh
- *     token fails (the user was disabled or signed out in Keycloak).
- * A refresh rewrites the claims from the new tokens (auth.js), so a user taken out of a group
- * loses that group's access within claimsMaxAge. Of several requests that find the claims stale
- * at once, one refreshes; the others go on with the claims they read.
+ *     token fails (the user was disabled or signed out in Keycloak). The account's claims are
+ *     then deleted, so every session of that account ends at its next request.
+ * A refresh stores the groups from the newly issued access token (Keycloak's mappers put them
+ * there), never from tokens kept from before; a token without the account's subject fails it.
+ * Of several requests that find the claims stale, one refreshes and the others wait for it (up
+ * to a few seconds; if it doesn't finish, they're refused rather than served on old claims).
  */
-export async function readWho(auth, config, request) {
+export async function readWho(auth, config, request, {wait = sleep} = {}) {
   const got = await readSession(auth, request);
   if (!got) return null;
   const provider = got.session.provider || "email";
   if (provider === "email") return {...got, provider, claims: new Map()};
   try {
     const p = config.auth.oidc.find((x) => x.id === provider);
+    const subject = got.session.subject;
     const started = new Date(got.session.createdAt).getTime();
-    if (!p || !(Date.now() - started < config.auth.oidcSessionHours * 3600e3)) return endSession(auth, got);
-    let row = await claimsOf(auth.db, provider, got.user.id);
-    if (!row) return endSession(auth, got);
-    if (Date.now() - Number(row.refreshedAt) > config.auth.claimsMaxAge * 1000) {
-      const won = await auth.db.updateTable("oidcClaims").set({refreshedAt: Date.now()})
-        .where("providerId", "=", provider).where("subject", "=", row.subject).where("refreshedAt", "=", row.refreshedAt)
+    if (!p || !subject || !(Date.now() - started < config.auth.oidcSessionHours * 3600e3)) return endSession(auth, got);
+    const maxAge = config.auth.claimsMaxAge * 1000;
+    let row = await claimsOf(auth.db, provider, subject);
+    if (!row || row.userId !== got.user.id) return endSession(auth, got);
+    if (Date.now() - Number(row.refreshedAt) > maxAge) {
+      const now = Date.now();
+      const won = await auth.db.updateTable("oidcClaims").set({refreshingUntil: now + 10e3})
+        .where("providerId", "=", provider).where("subject", "=", subject)
+        .where("refreshedAt", "=", row.refreshedAt).where("refreshingUntil", "<", now)
         .executeTakeFirst();
       if (Number(won.numUpdatedRows) === 1) {
-        const account = await auth.db.selectFrom("account").select("id")
-          .where("userId", "=", got.user.id).where("providerId", "=", provider).executeTakeFirst();
-        try {
-          if (!account) throw new Error("no account");
-          await auth.api.refreshToken({body: {accountId: account.id, userId: got.user.id}});
-        } catch {
-          return endSession(auth, got);
-        }
-        row = await claimsOf(auth.db, provider, got.user.id);
+        row = await refresh(auth, got, provider, subject);
         if (!row) return endSession(auth, got);
+      } else {
+        row = null;
+        for (let i = 0; i < 10 && !row; i++) {
+          await wait(400);
+          const now2 = await claimsOf(auth.db, provider, subject);
+          if (!now2) return endSession(auth, got);
+          if (Date.now() - Number(now2.refreshedAt) <= maxAge) row = now2;
+        }
+        if (!row) return null;   // the refresh didn't finish in time: refuse this request, keep the session
       }
     }
     return {...got, provider, claims: new Map([[provider, {groups: JSON.parse(row.groups), roles: JSON.parse(row.roles)}]])};
@@ -77,8 +87,34 @@ export async function readWho(auth, config, request) {
   }
 }
 
-function claimsOf(db, providerId, userId) {
-  return db.selectFrom("oidcClaims").selectAll().where("providerId", "=", providerId).where("userId", "=", userId).executeTakeFirst();
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Refresh one account's tokens and store its claims from the new access token; null on failure. */
+async function refresh(auth, got, provider, subject) {
+  const account = await auth.db.selectFrom("account").select("id")
+    .where("userId", "=", got.user.id).where("providerId", "=", provider).where("accountId", "=", subject)
+    .executeTakeFirst();
+  let claims = null;
+  if (account) {
+    try {
+      const tokens = await auth.api.refreshToken({body: {accountId: account.id, userId: got.user.id}});
+      claims = jwtPayload(tokens?.accessToken);
+    } catch {
+      claims = null;
+    }
+  }
+  if (!claims || claims.sub !== subject) {
+    // Fail closed for the whole account: every session bound to it ends at its next request.
+    await auth.db.deleteFrom("oidcClaims").where("providerId", "=", provider).where("subject", "=", subject).execute();
+    return null;
+  }
+  const row = claimsRow(provider, subject, got.user.id, claims);
+  await saveClaims(auth.db, row);
+  return row;
+}
+
+function claimsOf(db, providerId, subject) {
+  return db.selectFrom("oidcClaims").selectAll().where("providerId", "=", providerId).where("subject", "=", subject).executeTakeFirst();
 }
 
 async function endSession(auth, got) {
