@@ -253,7 +253,7 @@ a Portolan catalog), and Observatory ignores them.
    local data.
 2. Deploy the gate at dashboards.healthcampaigns.org, replacing the `campaignhq` Worker,
    with these access rules:
-   - Nigeria demo pages: public, as today;
+   - Nigeria demo pages: public, as today (decided 2026-10-22);
    - `/ug/`: the `uga` realm's `/dashboards` group, `ona.io` email users, and admins.
 3. Move doorman's users from its D1 database. It's the same schema, and the migrations
    come along.
@@ -280,5 +280,4 @@ a Portolan catalog), and Observatory ignores them.
   `/dashboards` group in the `uga` realm. It can be scripted against the admin API, like
   `tools/hapi/gcp/gateway/api-key.sh`.
 - **Mail:** Resend, with a verified `healthcampaigns.org` sender, as doorman uses now.
-- **Nigeria demo pages:** stay public, or need sign-in? This spec keeps them public.
 - **Route prefix:** `/_obs/…` replaces doorman's `/_door/…`. Old login links redirect.
