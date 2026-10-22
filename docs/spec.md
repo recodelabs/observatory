@@ -75,7 +75,7 @@ Keycloak ── auth.healthcampaigns.org, one realm per country, as an OIDC prov
 | `packages/cli` | `observatory` command: `new`, `dev`, `pull`, `build`, `deploy` | icr `campaignhq/deploy.sh`, `duckdb-wasm2.sh` |
 | `packages/components` | Framework components: maps, filters, DuckDB helpers, theme | icr `campaignhq/src/components/` |
 | `packages/editor` | The editor in the gate (phase 5) | new |
-| `templates/site` | Starter site: config, one page, one data loader | new |
+| `packages/cli/template` | Starter site: config, one page, two data loaders | new |
 
 A project that uses Observatory keeps its sites and config in its own repo. It installs
 the packages from GitHub Packages (`@recodelabs/observatory-gate`, `-cli`, `-components`),
@@ -99,13 +99,18 @@ One file, `observatory.config.js`, read by the CLI and bundled into the gate:
 ```js
 export default {
   host: "https://dashboards.healthcampaigns.org",
-  cloudflare: {account: "…", bucket: "icr", d1: "observatory"},
+  cloudflare: {
+    account: "…", bucket: "icr", d1: "observatory",
+    rclone: "r2",                 // the rclone remote for the bucket
+    sites: "_site/campaignhq/",   // where builds go: this folder plus each site's path
+    worker: "worker"              // the folder `observatory deploy` runs `wrangler deploy` in
+  },
   brand: {title: "Campaign Dashboards", accent: "#0b57d0", logo: null},
   repo: {github: "recodelabs/icr", branch: "main", root: "dashboards"},   // for "Edit this page"
 
   warehouses: {
     main: {r2: ""},          // the bucket root
-    uga:  {r2: "uga/"}
+    uga:  {r2: "uga/", local: "../country/uganda/warehouse"}   // local: for --local builds
   },
 
   // Each site says who may see it. A site without `access` needs sign-in, so a new site is
@@ -142,7 +147,8 @@ doorman's request flow stays. It changes in four ways.
 
 ### 1. Several sites behind one Worker
 
-- **Routing:** each site's `path` maps to its build at `_site/<name>/` in R2. Requests
+- **Routing:** each site's `path` maps to its build at `cloudflare.sites` plus the path
+  in R2 (`/ug/` → `_site/campaignhq/ug/`), so bucket folders mirror URLs. Requests
   are routed by the longest path prefix that matches. Within a site, the existing serving
   stays: clean URLs, range requests, ETag/304, and the brotli copy of the DuckDB engine.
 - **Rules:** access rules match the full request path (`ug/plan`,
@@ -249,16 +255,18 @@ doorman's request flow stays. It changes in four ways.
 
 | Command | What it does |
 |---|---|
-| `observatory new <site>` | Creates `sites/<site>` from the template and adds it to the config |
+| `observatory new <site>` | Creates `sites/<site>` from the template and prints the config entry to add |
 | `observatory dev <site>` | Runs Framework's preview with DuckDB 2.0 swapped in and `DUCKDB_AGENT_MODE=0`. The data comes from the local warehouse copy, or the cached pull |
 | `observatory pull [<site>…]` | Copies each site's warehouse from R2 into the cache (`~/.cache/observatory/`) |
 | `observatory build [<site>…]` | Pulls, clears Framework's cached loader outputs, builds, and adds brotli copies of `.wasm` files |
-| `observatory deploy [<site>…]` | Builds, uploads each build to `_site/<name>/`, applies D1 migrations and deploys the gate. `--dry-run` shows what would change |
-| `observatory check` | Lists which pages and data files each rule makes public, signed-in or restricted, and warns about mismatches |
+| `observatory deploy [<site>…]` | Builds, uploads each build to its bucket folder, and deploys the Worker in `cloudflare.worker`. `--dry-run` shows what would change. From gate v1 it also applies D1 migrations |
+| `observatory check` | Checks the config and each site's Framework config, and lists each site's access, warehouse and bucket folder. From gate v1 it also lists which pages and data files each rule makes public, signed-in or restricted, and warns about mismatches |
 
 - **Deploying sites one at a time:** uploads are per site, so deploying one site never
-  deletes another's. (The ICR's `deploy.sh` had this risk, because the main site's sync
-  owned the whole prefix.)
+  deletes another's. A site's upload leaves the folders of the sites under its path alone.
+  It stops if the bucket holds pages in a folder that is neither in the build nor a
+  configured site; `--prune` deletes them. (The ICR's `deploy.sh` had this risk: the main
+  site's sync deleted any folder not in its list.)
 - **Loaders:** read the warehouse path from `DATA`, which the CLI sets.
 - **DuckDB 2.0:** the CLI does what `duckdb-wasm2.sh` does today, until DuckDB-Wasm 2.0
   is on npm and Framework uses it.
@@ -318,7 +326,8 @@ a Portolan catalog), and Observatory ignores them.
 1. **Repo:** doorman becomes `packages/gate`, plus this spec. *(Done in the first
    commits.)*
 2. **CLI and components:** lifted from the ICR, with the template site and the move of
-   `campaignhq` (steps 1 and 3 above, without the gate change).
+   `campaignhq` (step 1 above, without the gate change). *(CLI, components and template in
+   PR #2; the move of `campaignhq` is a PR in recodelabs/icr.)*
 3. **Gate v1:** several sites, Keycloak sign-in, group rules and `/_obs` routes. Then
    cutover (steps 2, 4 and 5). `/ug/` goes behind the `uga` realm.
 4. **CI deploy and the "Edit this page" link.**

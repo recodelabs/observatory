@@ -17,8 +17,8 @@ the login Worker, which it absorbs as `packages/gate`.
 | Package | State |
 |---|---|
 | `packages/gate` | doorman v0.2, unchanged so far: email and magic-link sign-in, admin approval, public/protected/disabled rules, one site per Worker. 67 tests pass. |
-| `packages/cli` | planned (phase 2) |
-| `packages/components` | planned (phase 2) |
+| `packages/cli` | v0.1: `observatory new`, `dev`, `pull`, `build`, `deploy`, `check`; DuckDB 2.0 swap; template site. See its README. |
+| `packages/components` | v0.1: `adminMap` (MapLibre + PMTiles), choropleth classes, linked filters. See its README. |
 | `packages/editor` | planned (phase 5) |
 
 ## Develop
@@ -27,7 +27,15 @@ Needs Node 22 or later (`.node-version`).
 
 ```bash
 npm install
-npm test --workspace packages/gate
+npm test --workspaces --if-present
+```
+
+`examples/demo` is a one-site project on a made-up warehouse:
+
+```bash
+cd examples/demo
+npm run warehouse        # makes warehouse/ (needs the duckdb CLI)
+npm run dev              # observatory dev demo --local
 ```
 
 See `packages/gate/README.md` for running the gate locally with wrangler.

@@ -1,0 +1,3 @@
+warehouse/
+sites/*/dist/
+sites/*/src/.observablehq/cache/
