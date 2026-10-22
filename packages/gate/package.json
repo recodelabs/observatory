@@ -1,5 +1,5 @@
 {
-  "name": "@observatory/gate",
+  "name": "@recodelabs/observatory-gate",
   "version": "0.2.0",
   "type": "module",
   "description": "Observatory's gate: login and access control in front of static Observable Framework sites in R2. Cloudflare Worker + Better Auth + D1 + R2. Formerly doorman.",

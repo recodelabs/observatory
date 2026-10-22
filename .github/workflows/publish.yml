@@ -1,0 +1,31 @@
+# Publish the CLI and components to GitHub Packages when a release tag (v0.1.0 …) is pushed.
+# The packages' versions must match the tag.
+name: publish
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          registry-url: https://npm.pkg.github.com
+          scope: "@recodelabs"
+      - run: sudo apt-get install -y rclone
+      - run: npm ci
+      - run: npm test --workspaces --if-present
+      - name: Check versions
+        run: |
+          for p in cli components; do
+            v=$(node -p "require('./packages/$p/package.json').version")
+            [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "packages/$p is $v, tag is $GITHUB_REF_NAME"; exit 1; }
+          done
+      - run: npm publish --workspace packages/cli --workspace packages/components
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

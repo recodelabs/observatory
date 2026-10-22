@@ -1,0 +1,16 @@
+{
+  "name": "observatory-demo",
+  "private": true,
+  "type": "module",
+  "description": "A small Observatory project: one site on a made-up warehouse (make-warehouse.sh), to try the CLI on",
+  "scripts": {
+    "warehouse": "./make-warehouse.sh",
+    "dev": "observatory dev demo --local",
+    "build": "observatory build demo --local"
+  },
+  "dependencies": {
+    "@observablehq/framework": "1.13.4",
+    "@recodelabs/observatory-cli": "*",
+    "@recodelabs/observatory-components": "*"
+  }
+}
