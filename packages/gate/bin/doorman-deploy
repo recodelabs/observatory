@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Build the site, publish it to R2, migrate D1, deploy the Worker. Run from a deployment
+# directory holding doorman.config.js and wrangler.jsonc (see the doorman README).
+#   doorman-deploy [--skip-build] [--dry-run]
+# Env: R2_BUCKET (default: bucket_name from wrangler.jsonc), R2_REMOTE (rclone remote, default r2)
+set -euo pipefail
+BUILD=1; DRY=""
+for a in "$@"; do case "$a" in --skip-build) BUILD=0;; --dry-run) DRY="--dry-run";; *) echo "unknown option $a" >&2; exit 2;; esac; done
+[ -f doorman.config.js ] && [ -f wrangler.jsonc ] || { echo "run from a directory with doorman.config.js and wrangler.jsonc" >&2; exit 1; }
+
+NAME=$(node -e 'import("./doorman.config.js").then(m=>console.log(m.default.site.name))')
+DIST=$(node -e 'import("./doorman.config.js").then(m=>console.log(m.default.site.dist||""))')
+# A full JSONC-comment strip (replace(/\/\/.*$/mg,"")) would also truncate the
+# "vars": {"BASE_URL": "http://..."} line at the // inside the URL and break JSON.parse,
+# so pull bucket_name out with a targeted regex instead of parsing the whole file.
+BUCKET="${R2_BUCKET:-$(node -e 'const m=require("fs").readFileSync("wrangler.jsonc","utf8").match(/"bucket_name"\s*:\s*"([^"]+)"/);console.log(m[1])')}"
+REMOTE="${R2_REMOTE:-r2}"
+[ -n "$DIST" ] || { echo "doorman.config.js: site.dist is required to deploy" >&2; exit 1; }
+
+if [ "$BUILD" = 1 ]; then echo "== build site in $DIST/.."; (cd "$DIST/.." && npm run build); fi
+echo "== check page rules"; node "$(dirname "$0")/doorman-check-rules" || true
+echo "== sync $DIST → $REMOTE:$BUCKET/_site/$NAME ${DRY:+(dry run)}"
+rclone sync $DRY --checksum --fast-list --transfers 16 --exclude ".DS_Store" "$DIST" "$REMOTE:$BUCKET/_site/$NAME" --stats-one-line -v 2>&1 | tail -3
+if [ -z "$DRY" ]; then
+  echo "== migrate D1"; npx wrangler d1 migrations apply doorman --remote
+  echo "== deploy worker"; npx wrangler deploy
+fi
