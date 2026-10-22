@@ -15,6 +15,7 @@
   "files": [
     "NOTICE",
     "example",
+    "keycloak",
     "migrations",
     "src"
   ],

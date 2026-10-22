@@ -37,3 +37,19 @@ test("usesDuckDB finds sql front matter, sql blocks and DuckDBClient, and skips 
     rmSync(root, {recursive: true, force: true});
   }
 });
+
+test("pendingMigrations compares the gate's files with what the database recorded", async () => {
+  const {pendingMigrations} = await import("../src/commands.js");
+  const root = mkdtempSync(join(tmpdir(), "obs-gate-"));
+  try {
+    const dir = join(root, "node_modules", "@recodelabs", "observatory-gate", "migrations");
+    mkdirSync(dir, {recursive: true});
+    for (const f of ["0001_auth.sql", "0002_oidc.sql"]) writeFileSync(join(dir, f), "--");
+    mkdirSync(join(root, "gate"));
+    assert.deepEqual(pendingMigrations(join(root, "gate"), "db", {query: () => ["0001_auth.sql"]}), ["0002_oidc.sql"]);
+    assert.deepEqual(pendingMigrations(join(root, "gate"), "db", {query: () => []}), ["0001_auth.sql", "0002_oidc.sql"]);
+    assert.deepEqual(pendingMigrations(join(root, "gate"), "db", {query: () => ["0001_auth.sql", "0002_oidc.sql"]}), []);
+  } finally {
+    rmSync(root, {recursive: true, force: true});
+  }
+});
