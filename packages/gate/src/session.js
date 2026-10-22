@@ -98,12 +98,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * stored newer claims, or the lock ran out and another refresh took it).
  *
  * The gate calls the provider's token endpoint itself, rather than Better Auth's refresh, so that
- * nothing is written until it knows it still holds the lock. The writes are one D1 batch (one
- * transaction), each statement conditional on that lock:
- *   - success: the claims, then the account's tokens, then the lock released;
- *   - failure: every session of the account, then its claims.
- * A sign-in in between clears the lock (auth.js, saveClaims), so its tokens, claims and new
- * session are never overwritten or deleted by an older refresh.
+ * nothing is written unless it still holds the lock and the account still has the tokens the
+ * refresh started from. The writes are one D1 batch (one transaction):
+ *   - success: the account's tokens (compare-and-swap on the old refresh token, and the lock),
+ *     then the claims with the lock released (only if the tokens were written);
+ *   - failure: every session of the account, then its claims (both only while the lock is held).
+ * A sign-in in between writes new tokens (so the swap fails) and clears the lock (auth.js,
+ * saveClaims), so its tokens, claims and new session are never overwritten or deleted by an
+ * older refresh.
  */
 // Better Auth keeps provider tokens unencrypted in D1 here (account.encryptOAuthTokens is off), so
 // the refresh token is read as stored.
@@ -129,16 +131,22 @@ async function refresh(auth, env, p, got, subject, lock) {
     return gone.meta.changes === 1 ? "failed" : "superseded";
   }
   const row = claimsRow(p.id, subject, got.user.id, claims);
-  const done = `${lock}:done`;
+  const newRefresh = tokens.refresh_token ?? account.refreshToken;
   const now = new Date().toISOString();
-  const [saved] = await env.DB.batch([
-    env.DB.prepare(`UPDATE "oidcClaims" SET "groups" = ?, "roles" = ?, "refreshedAt" = ?, "refreshingUntil" = 0, "refreshLock" = ?
-      WHERE "providerId" = ? AND "subject" = ? AND "refreshLock" = ?`).bind(row.groups, row.roles, row.refreshedAt, done, p.id, subject, lock),
+  // 1. The account's tokens, only if they are still the ones this refresh started from (a
+  //    sign-in in the meantime has written its own) and the lock is still held.
+  // 2. The claims, only if step 1 wrote (the account now holds this refresh's access token).
+  // 3. The lock released.
+  const [, saved] = await env.DB.batch([
     env.DB.prepare(`UPDATE "account" SET "accessToken" = ?, "refreshToken" = ?, "idToken" = COALESCE(?, "idToken"),
-      "accessTokenExpiresAt" = ?, "updatedAt" = ? WHERE "id" = ? AND ${owned}`)
-      .bind(tokens.access_token, tokens.refresh_token ?? account.refreshToken, tokens.id_token ?? null,
-        tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null, now, account.id, p.id, subject, done),
-    env.DB.prepare(`UPDATE "oidcClaims" SET "refreshLock" = NULL WHERE "providerId" = ? AND "subject" = ? AND "refreshLock" = ?`).bind(p.id, subject, done)
+      "accessTokenExpiresAt" = ?, "updatedAt" = ? WHERE "id" = ? AND "refreshToken" = ? AND ${owned}`)
+      .bind(tokens.access_token, newRefresh, tokens.id_token ?? null,
+        tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null, now,
+        account.id, account.refreshToken, p.id, subject, lock),
+    env.DB.prepare(`UPDATE "oidcClaims" SET "groups" = ?, "roles" = ?, "refreshedAt" = ?, "refreshingUntil" = 0, "refreshLock" = NULL
+      WHERE "providerId" = ? AND "subject" = ? AND "refreshLock" = ?
+      AND EXISTS (SELECT 1 FROM "account" WHERE "id" = ? AND "accessToken" = ?)`)
+      .bind(row.groups, row.roles, row.refreshedAt, p.id, subject, lock, account.id, tokens.access_token)
   ]);
   return saved.meta.changes === 1 ? row : "superseded";
 }
