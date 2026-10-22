@@ -3,15 +3,26 @@
   "version": "0.1.0",
   "type": "module",
   "description": "observatory: build, preview and deploy Observable Framework sites from a data warehouse in R2",
-  "repository": {"type": "git", "url": "git+https://github.com/recodelabs/observatory.git", "directory": "packages/cli"},
-  "publishConfig": {"registry": "https://npm.pkg.github.com"},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/recodelabs/observatory.git",
+    "directory": "packages/cli"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "bin": {
     "observatory": "bin/observatory.js"
   },
   "exports": {
     "./config": "./src/config.js"
   },
-  "files": ["bin", "src", "template"],
+  "files": [
+    "bin",
+    "src",
+    "template"
+  ],
   "scripts": {
     "test": "node --test test/*.test.js"
   },

@@ -78,8 +78,9 @@ Keycloak ── auth.healthcampaigns.org, one realm per country, as an OIDC prov
 | `packages/cli/template` | Starter site: config, one page, two data loaders | new |
 
 A project that uses Observatory keeps its sites and config in its own repo. It installs
-the packages from GitHub Packages (`@recodelabs/observatory-gate`, `-cli`, `-components`),
-published from this repo's workspaces on each release. An npm git dependency would resolve
+the packages from npm (`@recodelabs/observatory-cli`, `-components`, and later `-gate`),
+published from this repo's workspaces on each release tag. (GitHub Packages was the first
+plan; the org's billing limit blocked it, 2026-10-22.) An npm git dependency would resolve
 to the workspace root, which exports nothing, so that is not how they are installed.
 doorman's deployment folders (`import … from "doorman"`) change to the new package names.
 
