@@ -138,7 +138,8 @@ export function adminMap({
     const t = opts.thresholds, c = opts.colors, f = opts.legendFormat ?? opts.format ?? String;
     const swatch = (color) => `<span style="display:inline-block;width:14px;height:11px;background:${color};border:1px solid #cbd5e1"></span>`;
     const items = c.map((color, i) => {
-      const text = i === 0 ? `< ${f(t[0])}` : i === c.length - 1 ? `≥ ${f(t[i - 1])}` : `${f(t[i - 1])}–${f(t[i])}`;
+      const text = c.length === 1 ? "with a value"
+        : i === 0 ? `< ${f(t[0])}` : i === c.length - 1 ? `≥ ${f(t[i - 1])}` : `${f(t[i - 1])}–${f(t[i])}`;
       return `<div style="display:flex;align-items:center;gap:6px;line-height:1.5">${swatch(color)}${escape(text)}</div>`;
     }).join("");
     legend.innerHTML = `<div style="margin-bottom:3px;font-weight:500">${escape(opts.label)}</div>${items}`
@@ -150,9 +151,13 @@ export function adminMap({
     if (!ready) return;
     if (choropleth && opts.colors) {
       if (opts.colors.length !== opts.thresholds.length + 1) throw new Error("adminMap: colors needs one more entry than thresholds");
-      const step = ["step", ["feature-state", "v"], opts.colors[0]];
-      opts.thresholds.forEach((t, i) => step.push(t, opts.colors[i + 1]));
-      map.setPaintProperty("unit-fill", "fill-color", ["case", ["==", ["feature-state", "v"], null], NO_VALUE, step]);
+      // One class (no thresholds, e.g. every value the same) is one colour; a step needs a stop.
+      let color = opts.colors[0];
+      if (opts.thresholds.length) {
+        color = ["step", ["feature-state", "v"], opts.colors[0]];
+        opts.thresholds.forEach((t, i) => color.push(t, opts.colors[i + 1]));
+      }
+      map.setPaintProperty("unit-fill", "fill-color", ["case", ["==", ["feature-state", "v"], null], NO_VALUE, color]);
       for (const f of map.querySourceFeatures("admin", {sourceLayer: L.units})) setState(f.id, {v: values.get(f.id) ?? null});
     }
     const regionFilter = region ? ["==", ["get", regionField], region] : null;

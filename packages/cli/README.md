@@ -95,8 +95,8 @@ duckdb -c "COPY (
 ```
 
 Framework reuses a loader's output until the loader file changes. `build` and `deploy`
-clear every loader output in the site's cache (all but Framework's own `_`-prefixed
-folders), so every build reads the warehouse again. `dev` doesn't. To see new data in a
+clear every loader output in the site's cache (all but Framework's own `_npm`, `_node`,
+`_jsr`, `_observablehq` and `_build.json`), so every build reads the warehouse again. `dev` doesn't. To see new data in a
 running preview, delete the loader's output under `src/.observablehq/cache/`.
 
 `pull` mirrors the warehouse into `~/.cache/observatory/warehouses/<remote>/<bucket>/<folder>`.

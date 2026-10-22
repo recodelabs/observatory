@@ -9,12 +9,12 @@ test("clearLoaderCache drops every loader output and keeps Framework's own cache
   const root = mkdtempSync(join(tmpdir(), "obs-src-"));
   const cache = join(root, ".observablehq", "cache");
   try {
-    for (const p of ["_npm/htl@1.0.0/_esm.js", "_node/x.js", "data/a.parquet", "metrics.parquet", "pages/b.csv"]) {
+    for (const p of ["_npm/htl@1.0.0/_esm.js", "_node/x.js", "_build.json", "data/a.parquet", "metrics.parquet", "pages/b.csv", "_data/c.parquet"]) {
       mkdirSync(join(cache, p, ".."), {recursive: true});
       writeFileSync(join(cache, p), "x");
     }
     clearLoaderCache(root);
-    assert.deepEqual(readdirSync(cache).sort(), ["_node", "_npm"]);
+    assert.deepEqual(readdirSync(cache).sort(), ["_build.json", "_node", "_npm"]);
     clearLoaderCache(join(root, "missing"));
   } finally {
     rmSync(root, {recursive: true, force: true});

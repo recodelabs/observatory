@@ -36,15 +36,16 @@ function siteEnv(data) {
   return env;
 }
 
-/**
- * Remove the data loaders' cached outputs from the site's Framework cache, wherever the loaders
- * are. Framework's own caches start with "_" (_npm, _node, _jsr, _observablehq) and are kept.
- */
+// Framework's own entries in a site's cache: imported packages, its client bundles, the build
+// record. Everything else there is a data loader's output.
+const FRAMEWORK_CACHE = new Set(["_npm", "_node", "_jsr", "_observablehq", "_build.json"]);
+
+/** Remove the data loaders' cached outputs from the site's Framework cache, wherever the loaders are. */
 export function clearLoaderCache(root) {
   const cache = join(root, ".observablehq", "cache");
   if (!existsSync(cache)) return;
   for (const e of readdirSync(cache)) {
-    if (!e.startsWith("_")) rmSync(join(cache, e), {recursive: true, force: true});
+    if (!FRAMEWORK_CACHE.has(e)) rmSync(join(cache, e), {recursive: true, force: true});
   }
 }
 
