@@ -145,7 +145,8 @@ written in the config.
 
 ## The gate
 
-doorman's request flow stays. It changes in four ways.
+doorman's request flow stays. It changes in four ways, and doorman's rule that makes the
+first person to register an active admin is removed (see "Who is an admin").
 
 ### 1. Several sites behind one Worker
 
@@ -236,9 +237,29 @@ doorman's request flow stays. It changes in four ways.
     }
     ```
 
-    The `{email}` entry is how the first admin gets in before anyone else exists. Admin
-    rights from a Keycloak group follow the same refresh as other claims (`claimsMaxAge`),
-    so removing someone from the group ends their admin rights within 15 minutes.
+    The `{email}` entry is how the first admin gets in before anyone else exists: it
+    matches only a verified email. It replaces doorman's rule that the first person to
+    register becomes an active admin, which is removed. Admin rights from a Keycloak group
+    follow the same refresh as other claims (`claimsMaxAge`), so removing someone from the
+    group ends their admin rights within 15 minutes.
+  - **Admins publish code.** A Framework page is code: its Markdown runs JavaScript and
+    raw HTML in every viewer's browser, with that viewer's session. So editing a page is
+    publishing code, and admin rights are given only to people trusted as much as those
+    with write access to the repo, who can already change any page. A page's code can call
+    the gate's own endpoints as whoever views it, admins included; the editor's checks
+    below stop other sites, not the pages themselves. If a less trusted `editor` level is
+    added later, the editor must move to its own origin and edits must be reviewed before
+    they deploy.
+- **The order of checks**, the same for pages, data files and modules:
+  1. a disabled user is refused everything but signing out;
+  2. a path whose rule is `disabled` is refused to everyone, admins too;
+  3. an admin is allowed (an admin meets every rule, so a file shared by several pages is
+     allowed too);
+  4. anyone else is checked against the path's rule, as set by the site's `access`, the
+     exceptions and the manifest below.
+
+  A user is disabled when an admin disables them in D1. That wins over every admin
+  grant, from `auth.admins` or from D1.
   - **Later, if needed:** per-site admins, and an `editor` level that can edit pages but
     not manage users. v1 has the two levels only.
 - **Failures:**
@@ -322,13 +343,29 @@ Admins edit the dashboards in the gate. The first version saves straight to GitH
 preview builds and pull requests come later.
 
 - **Phase 4: the editor, committing to GitHub.**
-  - **Where:** `/_obs/edit/` lists each site's pages (`sites/<site>/src/**/*.md`, read
-    from the repo's `repo.branch`). `/_obs/edit/<site>/<page>` opens one page's Markdown in
-    CodeMirror, with the live page beside it.
+  - **Where:** `/_obs/edit/` lists each site's pages. `/_obs/edit/<site>/<page>` opens
+    one page's Markdown in CodeMirror, with the live page beside it.
+  - **Which files:** the server builds the list of editable files from the config and
+    GitHub's tree API:
+    - the repository and branch come only from `repo` in the config;
+    - each site's source folder is `repo.root` + `sites[].dir` + Framework's `root`;
+    - a file is listed only if it is an existing regular file (a blob, not a symlink or
+      submodule) ending in `.md` under that folder.
+
+    Requests name a file by site and its path in that list, and anything not on the list
+    is refused, whatever its spelling: `..`, encoded slashes, absolute paths.
   - **The link in:** on every page an admin sees, the gate adds an "Edit this page" link to
     the editor. It adds the link when it serves the page, so read-only users never get
     it and the static build doesn't change.
-  - **Saving** commits the file to `repo.branch` through GitHub's contents API. Each
+  - **Every editor request checks the user.** That covers listing, reading and saving:
+    the gate checks on the server that the user is an admin, with fresh claims and the
+    disabled check. Hiding the link is not the protection.
+  - **Saving** is a `POST`, accepted only with:
+    - an `Origin` header equal to the configured host;
+    - a CSRF token tied to the session. The editor page carries the token; the blob SHA
+      is not a secret.
+
+    The gate then commits the file to `repo.branch` through GitHub's contents API. Each
     commit is one file:
     - its message is "Edit <site>/<page>.md", with the admin's own short note if they
       add one;
@@ -339,9 +376,14 @@ preview builds and pull requests come later.
   - **What a save doesn't do:** it doesn't change the live site. The new page shows after
     the next deploy (`observatory deploy`; from CI in phase 5). The editor says this after
     each save.
-  - **GitHub access:** a GitHub App installed on the repo with `contents: write` on that
-    repo only. Its private key is a Worker secret. The gate signs a short-lived app token
-    for each save.
+  - **GitHub access:** a GitHub App installed on the repo, with `contents: write` and
+    nothing else, on that repo only. For every read and save, the gate:
+    1. signs a short-lived JWT with the App's private key, a Worker secret;
+    2. exchanges it for an installation access token, asking only for that repository and
+       `contents: write`;
+    3. calls the contents API with that token.
+
+    Neither token leaves the Worker: neither goes in a response or a log.
   - **Limits (v1):**
     - Markdown pages only; no data loaders, components or config;
     - no new or deleted pages;
