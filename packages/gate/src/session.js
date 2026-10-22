@@ -1,4 +1,4 @@
-import {jwtPayload, claimsRow, saveClaims} from "./auth.js";
+import {jwtPayload, claimsRow} from "./auth.js";
 
 export class SessionUnavailable extends Error {
   constructor(cause) { super("session storage unavailable"); this.cause = cause; }
@@ -47,7 +47,7 @@ export async function readSession(auth, request) {
  * Of several requests that find the claims stale, one refreshes and the others wait for it (up
  * to a few seconds; if it doesn't finish, they're refused rather than served on old claims).
  */
-export async function readWho(auth, config, request, {wait = sleep} = {}) {
+export async function readWho(auth, config, request, env, {wait = sleep} = {}) {
   const got = await readSession(auth, request);
   if (!got) return null;
   const provider = got.session.provider || "email";
@@ -68,7 +68,7 @@ export async function readWho(auth, config, request, {wait = sleep} = {}) {
         .where("refreshedAt", "=", row.refreshedAt).where("refreshingUntil", "<", now)
         .executeTakeFirst();
       if (Number(won.numUpdatedRows) === 1) {
-        const result = await refresh(auth, got, provider, subject, lock);
+        const result = await refresh(auth, env, p, got, subject, lock);
         if (result === "failed") return endSession(auth, got);
         if (result === "superseded") return null;   // a sign-in or a later refresh wrote first: refuse this request only
         row = result;
@@ -93,36 +93,80 @@ export async function readWho(auth, config, request, {wait = sleep} = {}) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Refresh one account's tokens and store its claims from the new access token. Returns the new
- * row, "failed", or "superseded" when the lock was lost meanwhile (a sign-in stored newer claims,
- * or the lock ran out and another refresh took it): then nothing is written.
+ * Refresh one account's tokens at the provider and store the claims from the new access token.
+ * Returns the new row, "failed", or "superseded" when the lock was lost meanwhile (a sign-in
+ * stored newer claims, or the lock ran out and another refresh took it).
+ *
+ * The gate calls the provider's token endpoint itself, rather than Better Auth's refresh, so that
+ * nothing is written until it knows it still holds the lock. The writes are one D1 batch (one
+ * transaction), each statement conditional on that lock:
+ *   - success: the claims, then the account's tokens, then the lock released;
+ *   - failure: every session of the account, then its claims.
+ * A sign-in in between clears the lock (auth.js, saveClaims), so its tokens, claims and new
+ * session are never overwritten or deleted by an older refresh.
  */
-async function refresh(auth, got, provider, subject, lock) {
-  const account = await auth.db.selectFrom("account").select("id")
-    .where("userId", "=", got.user.id).where("providerId", "=", provider).where("accountId", "=", subject)
+// Better Auth keeps provider tokens unencrypted in D1 here (account.encryptOAuthTokens is off), so
+// the refresh token is read as stored.
+async function refresh(auth, env, p, got, subject, lock) {
+  const account = await auth.db.selectFrom("account").select(["id", "refreshToken"])
+    .where("userId", "=", got.user.id).where("providerId", "=", p.id).where("accountId", "=", subject)
     .executeTakeFirst();
-  let claims = null;
-  if (account) {
+  let tokens = null, claims = null;
+  if (account?.refreshToken) {
     try {
-      const tokens = await auth.api.refreshToken({body: {accountId: account.id, userId: got.user.id}});
-      claims = jwtPayload(tokens?.accessToken);
+      tokens = await refreshAtProvider(p, env[p.secretName], account.refreshToken);
+      claims = jwtPayload(tokens.access_token);
     } catch {
-      claims = null;
+      tokens = null;
     }
   }
-  const mine = (q) => q.where("providerId", "=", provider).where("subject", "=", subject).where("refreshLock", "=", lock);
-  if (!claims || claims.sub !== subject) {
-    // Fail closed for the whole account: its claims go, and every session bound to it ends now,
-    // so a later sign-in that stores claims again can't bring those sessions back.
-    const gone = await mine(auth.db.deleteFrom("oidcClaims")).executeTakeFirst();
-    if (Number(gone.numDeletedRows) !== 1) return "superseded";
-    await auth.db.deleteFrom("session").where("provider", "=", provider).where("subject", "=", subject).execute();
-    return "failed";
+  const owned = `EXISTS (SELECT 1 FROM "oidcClaims" WHERE "providerId" = ? AND "subject" = ? AND "refreshLock" = ?)`;
+  if (!tokens || !claims || claims.sub !== subject) {
+    const [, gone] = await env.DB.batch([
+      env.DB.prepare(`DELETE FROM "session" WHERE "provider" = ? AND "subject" = ? AND ${owned}`).bind(p.id, subject, p.id, subject, lock),
+      env.DB.prepare(`DELETE FROM "oidcClaims" WHERE "providerId" = ? AND "subject" = ? AND "refreshLock" = ?`).bind(p.id, subject, lock)
+    ]);
+    return gone.meta.changes === 1 ? "failed" : "superseded";
   }
-  const row = claimsRow(provider, subject, got.user.id, claims);
-  const saved = await mine(auth.db.updateTable("oidcClaims").set({groups: row.groups, roles: row.roles,
-    refreshedAt: row.refreshedAt, refreshingUntil: 0, refreshLock: null})).executeTakeFirst();
-  return Number(saved.numUpdatedRows) === 1 ? row : "superseded";
+  const row = claimsRow(p.id, subject, got.user.id, claims);
+  const done = `${lock}:done`;
+  const now = new Date().toISOString();
+  const [saved] = await env.DB.batch([
+    env.DB.prepare(`UPDATE "oidcClaims" SET "groups" = ?, "roles" = ?, "refreshedAt" = ?, "refreshingUntil" = 0, "refreshLock" = ?
+      WHERE "providerId" = ? AND "subject" = ? AND "refreshLock" = ?`).bind(row.groups, row.roles, row.refreshedAt, done, p.id, subject, lock),
+    env.DB.prepare(`UPDATE "account" SET "accessToken" = ?, "refreshToken" = ?, "idToken" = COALESCE(?, "idToken"),
+      "accessTokenExpiresAt" = ?, "updatedAt" = ? WHERE "id" = ? AND ${owned}`)
+      .bind(tokens.access_token, tokens.refresh_token ?? account.refreshToken, tokens.id_token ?? null,
+        tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null, now, account.id, p.id, subject, done),
+    env.DB.prepare(`UPDATE "oidcClaims" SET "refreshLock" = NULL WHERE "providerId" = ? AND "subject" = ? AND "refreshLock" = ?`).bind(p.id, subject, done)
+  ]);
+  return saved.meta.changes === 1 ? row : "superseded";
+}
+
+// The provider's token endpoint, from its discovery document (kept for the isolate's life).
+const tokenEndpoints = new Map();
+async function tokenEndpoint(p) {
+  if (!tokenEndpoints.has(p.issuer)) {
+    const res = await fetch(`${p.issuer}/.well-known/openid-configuration`, {signal: AbortSignal.timeout(5000)});
+    if (!res.ok) throw new Error(`discovery ${res.status}`);
+    const {token_endpoint: url} = await res.json();
+    if (!url || !String(url).startsWith(p.issuer + "/")) throw new Error("token endpoint outside the issuer");
+    tokenEndpoints.set(p.issuer, url);
+  }
+  return tokenEndpoints.get(p.issuer);
+}
+
+async function refreshAtProvider(p, secret, refreshToken) {
+  const res = await fetch(await tokenEndpoint(p), {
+    method: "POST",
+    headers: {"content-type": "application/x-www-form-urlencoded", accept: "application/json"},
+    body: new URLSearchParams({grant_type: "refresh_token", refresh_token: refreshToken, client_id: p.clientId, client_secret: secret}).toString(),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!res.ok) throw new Error(`token endpoint ${res.status}`);
+  const tokens = await res.json();
+  if (typeof tokens?.access_token !== "string") throw new Error("no access token");
+  return tokens;
 }
 
 function claimsOf(db, providerId, subject) {

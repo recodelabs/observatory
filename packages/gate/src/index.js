@@ -69,7 +69,7 @@ export function createApp(rawConfig) {
 
   app.use("/_obs/*", async (c, next) => {
     try {
-      c.set("session", await readWho(c.get("auth"), config, c.req.raw));
+      c.set("session", await readWho(c.get("auth"), config, c.req.raw, c.env));
     } catch (err) {
       if (err instanceof SessionUnavailable) return c.text("Service unavailable", 503);
       throw err;
@@ -98,7 +98,7 @@ export function createApp(rawConfig) {
     const wantsBar = rule === "public" && nav && request.headers.has("cookie");
     if ((rule !== "disabled" && rule !== "public") || wantsBar) {
       try {
-        who = await readWho(c.get("auth"), config, request);
+        who = await readWho(c.get("auth"), config, request, c.env);
       } catch (err) {
         // A public page still loads when the session store is down; only the bar is missing.
         if (err instanceof SessionUnavailable && !wantsBar) return c.text("Service unavailable", 503);
