@@ -1,14 +1,14 @@
 // Local dev and test config for this repo only — no account, routes, or real resources.
-// A deployment keeps its own wrangler.jsonc next to its doorman.config.js (see README).
+// A deployment keeps its own wrangler.jsonc next to its observatory.config.js (see packages/cli).
 {
-  "name": "doorman-dev",
+  "name": "observatory-gate-dev",
   "main": "example/worker.js",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "vars": {"BASE_URL": "http://localhost:8787"},
   "d1_databases": [
-    {"binding": "DB", "database_name": "doorman", "database_id": "local", "migrations_dir": "migrations"}
+    {"binding": "DB", "database_name": "observatory", "database_id": "local", "migrations_dir": "migrations"}
   ],
   "r2_buckets": [{"binding": "SITE", "bucket_name": "site"}]
 }

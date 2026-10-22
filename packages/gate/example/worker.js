@@ -1,6 +1,6 @@
-// The Worker entry file a deployment ships: build doorman from its config and export it.
-// A consumer imports from the package instead: `import {createDoorman} from "doorman";`
-import {createDoorman} from "../src/index.js";
-import config from "./doorman.config.js";
+// The Worker entry file a deployment ships: build the gate from the project's config.
+// A deployment imports from the package: `import {createGate} from "@recodelabs/observatory-gate";`
+import {createGate} from "../src/index.js";
+import config from "./observatory.config.js";
 
-export default createDoorman(config);
+export default createGate(config);

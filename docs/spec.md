@@ -251,18 +251,22 @@ first person to register an active admin is removed (see "Who is an admin").
     added later, the editor must move to its own origin and edits must be reviewed before
     they deploy.
 - **The order of checks**, the same for pages, data files and modules:
-  1. a disabled user is refused everything but signing out;
-  2. a path whose rule is `disabled` is refused to everyone, admins too;
-  3. a public path is allowed;
-  4. a user who isn't active is refused, as if not signed in. That covers an email user
-     still waiting for approval (doorman's approval flow stays). A Keycloak user is active
-     on sign-in, and so is the verified identity that `auth.admins` names;
-  5. an admin is allowed. An admin meets every rule, so a file shared by several pages is
+  1. a path whose rule is `disabled` is refused to everyone, admins too;
+  2. a public path is served, without looking at the session;
+  3. without a session, the user is sent to sign in;
+  4. a disabled user is refused;
+  5. a user who isn't active is sent to the pending page. That covers an email user
+     waiting for approval or for their address to be confirmed (doorman's approval flow
+     stays). A Keycloak user is active on sign-in, and so is a verified address that
+     `auth.admins` names or that is in `auth.email.allowedDomains`;
+  6. an admin is allowed. An admin meets every rule, so a file shared by several pages is
      allowed too;
-  6. anyone else is checked against the path's rule: the site's `access`, the exceptions,
+  7. anyone else is checked against the path's rule: the site's `access`, the exceptions,
      and the manifest below. `"signed-in"` means an active user.
 
-  The same order guards the admin page and the editor, which need step 5. A user is
+  A disabled user can still open public pages, which anyone can; looking up the session
+  on every public request would cost a database read for nothing.
+  The same order guards the admin page and the editor, which need step 6. A user is
   disabled when an admin disables them in D1. That wins over every admin grant, from
   `auth.admins` or from D1.
   - **Later, if needed:** per-site admins, and an `editor` level that can edit pages but

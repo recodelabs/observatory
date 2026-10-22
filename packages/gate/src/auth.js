@@ -24,6 +24,20 @@ export function createAuth(env, config) {
       ipAddress: {ipAddressHeaders: ["cf-connecting-ip"]}
     },
     emailAndPassword: {enabled: true, minPasswordLength: 10, autoSignIn: true},
+    // Access rules count only verified addresses (an allowed domain, an admin's email), so
+    // every sign-up gets a link to prove the address; a magic-link sign-in proves it too.
+    emailVerification: {
+      sendOnSignUp: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({user, url}) => {
+        try {
+          await sendMail(env, config, {to: user.email, subject: `Confirm your email for ${config.brand.title}`,
+            text: `Click to confirm your address:\n\n${url}\n\nIf you didn't sign up, ignore this email.`});
+        } catch (err) {
+          if (!(err instanceof MailError)) throw err;
+        }
+      }
+    },
     session: {expiresIn: config.auth.sessionDays * 24 * 60 * 60, updateAge: 24 * 60 * 60},
     rateLimit: {enabled: true, storage: "database", window: 60, max: 60,
       customRules: {"/sign-in/email": {window: 60, max: 10}, "/sign-in/magic-link": {window: 60, max: 5}, "/sign-up/email": {window: 60, max: 5}}},
@@ -35,18 +49,18 @@ export function createAuth(env, config) {
     databaseHooks: {
       user: {
         create: {
-          before: async (user) => {
-            const {n} = await db.selectFrom("user").select((eb) => eb.fn.countAll().as("n")).executeTakeFirst();
-            const first = Number(n) === 0;
-            const domain = String(user.email).toLowerCase().split("@")[1] ?? "";
-            const allowlisted = config.auth.allowedDomains.includes(domain);
-            return {data: {...user, role: first ? "admin" : "user", status: first || allowlisted ? "active" : "pending"}};
-          },
+          // Everyone starts as a pending user. doorman made the first account an active admin;
+          // the gate doesn't: admins come from auth.admins (or the admin page), and a verified
+          // address in an allowed domain is active without approval (access.js, statusOf).
+          before: async (user) => ({data: {...user, role: "user", status: "pending"}}),
           after: async (user) => {
-            if (user.status === "pending" && config.mail.adminNotify) {
+            const domain = String(user.email).toLowerCase().split("@")[1] ?? "";
+            const approvesItself = config.auth.allowedDomains.includes(domain)
+              || config.auth.admins.some((c) => c.email === String(user.email).toLowerCase() || c.emailDomain === domain);
+            if (!approvesItself && config.mail.adminNotify) {
               try {
                 await sendMail(env, config, {to: config.mail.adminNotify, subject: `${config.brand.title}: new account waiting for approval`,
-                  text: `${user.email} signed up and is waiting for approval.\n\n${env.BASE_URL}/_door/admin`});
+                  text: `${user.email} signed up and is waiting for approval.\n\n${env.BASE_URL}/_obs/admin`});
               } catch (err) {
                 if (!(err instanceof MailError)) throw err;
               }
@@ -63,7 +77,7 @@ export function createAuth(env, config) {
           try {
             await sendMail(env, config, {to: email, subject: `Sign in to ${config.brand.title}`, text: `Click to sign in:\n\n${url}\n\nThis link expires in 5 minutes.`});
           } catch (err) {
-            console.error("[doorman auth] magic link send failed", err);
+            console.error("[gate auth] magic link send failed", err);
             throw err;
           }
         }
@@ -81,7 +95,7 @@ const FORWARDED_HEADERS = [
 /**
  * Call one of Better Auth's own endpoints through `auth.handler`, the way a browser would.
  * Server-side `auth.api.*` calls skip the router, and with it the rate limiter and the
- * origin checks — doorman's HTML forms go through here instead so a form post is limited
+ * origin checks — the gate's HTML forms go through here instead so a form post is limited
  * exactly like a JSON post to the same endpoint. Headers the router cares about (client
  * IP for the limiter, origin/fetch-metadata for CSRF, cookie for the session) are carried
  * over from the incoming request; the URL is built on BASE_URL so it stays a trusted origin.

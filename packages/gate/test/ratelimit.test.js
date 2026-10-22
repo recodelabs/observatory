@@ -25,21 +25,21 @@ describe("rate limit", () => {
 // The HTML forms post to Better Auth through auth.handler, so they share the router's
 // per-IP limiter with the JSON endpoints above: a fixed cf-connecting-ip is all it takes.
 describe("rate limit on the HTML forms", () => {
-  it("blocks the 11th /_door/login attempt in a minute", async () => {
+  it("blocks the 11th /_obs/login attempt in a minute", async () => {
     await signUp("form-rl@example.org");
     const ip = "203.0.113.20";
     let last;
     for (let i = 0; i < 11; i++) {
-      last = await post("/_door/login", {email: "form-rl@example.org", password: "wrong wrong wrong", next: "/"}, {"cf-connecting-ip": ip});
+      last = await post("/_obs/login", {email: "form-rl@example.org", password: "wrong wrong wrong", next: "/"}, {"cf-connecting-ip": ip});
     }
     expect(last.status).toBe(200);
     expect(await last.text()).toMatch(/Too many attempts/);
   });
-  it("blocks the 6th /_door/signup in a minute", async () => {
+  it("blocks the 6th /_obs/signup in a minute", async () => {
     const ip = "203.0.113.21";
     let last;
     for (let i = 0; i < 6; i++) {
-      last = await post("/_door/signup", {email: `form-su${i}@example.org`, password: "correct horse battery", name: "Form"}, {"cf-connecting-ip": ip});
+      last = await post("/_obs/signup", {email: `form-su${i}@example.org`, password: "correct horse battery", name: "Form"}, {"cf-connecting-ip": ip});
     }
     expect(last.status).toBe(200);
     expect(await last.text()).toMatch(/Too many attempts/);

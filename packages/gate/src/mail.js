@@ -2,7 +2,7 @@ export class MailError extends Error {}
 
 export async function sendMail(env, config, {to, subject, text}, {fetch: doFetch = globalThis.fetch} = {}) {
   if (!env.RESEND_API_KEY) {
-    console.log(`[doorman mail] to=${to} subject=${JSON.stringify(subject)}\n${text}`);
+    console.log(`[gate mail] to=${to} subject=${JSON.stringify(subject)}\n${text}`);
     return;
   }
   let res;
@@ -13,12 +13,12 @@ export async function sendMail(env, config, {to, subject, text}, {fetch: doFetch
       body: JSON.stringify({from: config.mail.from, to: [to], subject, text})
     });
   } catch (err) {
-    console.error("[doorman mail] resend request failed", err);
+    console.error("[gate mail] resend request failed", err);
     throw new MailError("resend request failed", {cause: err});
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    console.error(`[doorman mail] resend ${res.status}: ${detail}`);
+    console.error(`[gate mail] resend ${res.status}: ${detail}`);
     throw new MailError(`resend ${res.status}`);
   }
 }
