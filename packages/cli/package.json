@@ -20,6 +20,7 @@
     "./config": "./src/config.js"
   },
   "files": [
+    "NOTICE",
     "bin",
     "src",
     "template"

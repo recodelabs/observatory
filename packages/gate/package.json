@@ -13,10 +13,11 @@
     "doorman-check-rules": "bin/doorman-check-rules"
   },
   "files": [
-    "src",
-    "migrations",
+    "NOTICE",
     "bin",
-    "example"
+    "example",
+    "migrations",
+    "src"
   ],
   "scripts": {
     "dev": "wrangler dev",
