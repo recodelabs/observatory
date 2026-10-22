@@ -77,8 +77,11 @@ Keycloak ── auth.healthcampaigns.org, one realm per country, as an OIDC prov
 | `packages/editor` | The editor in the gate (phase 5) | new |
 | `templates/site` | Starter site: config, one page, one data loader | new |
 
-A project that uses Observatory keeps its sites and config in its own repo and installs
-the packages from git, as it did with doorman:
+A project that uses Observatory keeps its sites and config in its own repo. It installs
+the packages from GitHub Packages (`@recodelabs/observatory-gate`, `-cli`, `-components`),
+published from this repo's workspaces on each release. An npm git dependency would resolve
+to the workspace root, which exports nothing, so that is not how they are installed.
+doorman's deployment folders (`import … from "doorman"`) change to the new package names.
 
 ```
 dashboards/
@@ -114,7 +117,9 @@ export default {
   ],
 
   auth: {
-    sessionDays: 30,
+    sessionDays: 30,          // email sessions
+    oidcSessionHours: 12,     // OIDC sessions: absolute lifetime
+    claimsMaxAge: 900,        // seconds before an OIDC session's groups and roles are refreshed
     email: {allowedDomains: ["ona.io"], from: "observatory@healthcampaigns.org", adminNotify: "…"},
     oidc: [
       {id: "uga", name: "Uganda (Keycloak)", issuer: "https://auth.healthcampaigns.org/realms/uga"},
@@ -141,7 +146,8 @@ doorman's request flow stays. It changes in four ways.
   are routed by the longest path prefix that matches. Within a site, the existing serving
   stays: clean URLs, range requests, ETag/304, and the brotli copy of the DuckDB engine.
 - **Rules:** access rules match the full request path (`ug/plan`,
-  `ug/_file/data/targets.…parquet`). So one rule covers a site's pages and its data.
+  `ug/_file/data/targets.…parquet`). A site's access covers its pages, its data files and
+  its own modules, because each site's build is under its own path.
 - **What it replaces:** the Campaign Dashboards Worker (`campaignhq/worker`) and the
   doorman Worker. Both hostnames stay: `doorman.healthcampaigns.org` redirects to the
   canonical host.
@@ -153,15 +159,35 @@ doorman's request flow stays. It changes in four ways.
   - The login page shows a "Sign in with …" button for each provider, next to the email
     sign-in.
 - **What the gate keeps from the ID token:** each user's groups (the `groups` claim) and
-  realm roles, stored in D1. They're refreshed at every sign-in.
+  realm roles (`realm_roles`). They're stored per provider account: keyed by provider and
+  the token's subject, never per user, and written only by the gate's sign-in callback.
+- **Which provider a session came from:** each session records how it was signed in (the
+  OIDC provider id, or `email`). An `{oidc: …}` condition is met only by a session signed in
+  through that provider. A user who also has an email login doesn't carry OIDC groups into
+  an email session.
+- **Group changes take effect within a bounded time:**
+  - the claims stored for a session are valid for 15 minutes (`auth.claimsMaxAge`);
+  - after that, the next request refreshes them with the provider's refresh token, and a
+    user removed from a group loses access then;
+  - if the refresh fails (the user was disabled or signed out in Keycloak), the session
+    ends;
+  - OIDC sessions also have an absolute lifetime (`auth.oidcSessionHours`, default 12),
+    which use doesn't extend;
+  - Keycloak's back-channel logout to the gate can come later, to end sessions straight
+    away.
 - **Accounts:** an OIDC user is `active` immediately. Keycloak has already decided who
   they are, and the access rules decide what they see.
 - **Email users:** they keep doorman's approval flow. That covers partners outside
-  Keycloak.
-- **Keycloak setup, per realm** (documented in the README):
-  - a confidential client named `observatory`, with the redirect URI
-    `https://<host>/auth/oauth2/callback/<id>`;
-  - a "Group Membership" mapper that adds the `groups` claim to the ID token;
+  Keycloak. An account counts for `{emailDomain}` and `{email}` conditions only once its
+  address is verified: by signing in with a magic link, or by the verification email a
+  password sign-up gets. An unverified sign-up from an allowed domain is not activated
+  either. This is a change from doorman, which trusted the domain of an unverified address.
+- **Keycloak setup, per realm**, with `packages/gate/keycloak/oidc-client.sh`:
+  - a confidential client named `observatory`, standard flow with PKCE (S256) only, with
+    the redirect URI `https://<host>/auth/callback/<id>` (Better Auth's OAuth callback
+    under the gate's `/auth` base path);
+  - mappers that add the `groups` claim (full paths) and the `realm_roles` claim to the ID
+    token, access token and userinfo;
   - the groups the rules name, e.g. `/dashboards` in `uga`.
 
 ### 3. Rules by who the user is
@@ -183,10 +209,23 @@ doorman's request flow stays. It changes in four ways.
 - **Failures:**
   - not signed in → the login page (or 401 for data requests);
   - signed in but not allowed → a 403 page that says which group grants access.
-- **Unchanged from doorman:**
-  - Framework's runtime paths (`_observablehq`, `_npm`, `_import`) become public once
-    any page is public;
-  - `observatory check` warns when a public page's data is not public.
+- **A page's data and modules are never less restricted than the page.**
+  - At deploy time, `observatory check` reads each built page's references. These are its
+    data files (`_file/…`) and its own modules (`_import/…`, which can hold page code and
+    embedded data). It writes a manifest that gives every file the rule of the most
+    restricted page that uses it. The gate applies the manifest.
+  - Two kinds of mismatch are deployment errors, not warnings:
+    - an exception (`access[]`) that leaves a page's data or modules more open than the
+      page;
+    - a file shared by pages with different rules, unless the config names it explicitly.
+  - A public page whose data is restricted gets a warning, because its charts would break.
+- **Framework's runtime is public within a site that has public pages.**
+  - The runtime is `_observablehq/…` and the npm packages under `_npm/…`, which hold no
+    project code or data. Within a site with any public page, they're public.
+  - `_import/…` is not part of this, because it holds the project's own modules. It
+    follows the manifest above.
+  - doorman made all three public as soon as any page was public. That could expose a
+    restricted page's modules.
 
 ### 4. The Info Gateway
 
