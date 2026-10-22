@@ -60,3 +60,11 @@ test("selectSites keeps config order and rejects unknown names", () => {
   assert.equal(selectSites(c, []).length, 3);
   assert.throws(() => selectSites(c, ["ug"]), /no site named ug/);
 });
+
+test("cloudflare.d1 needs a worker folder and a plain name", () => {
+  const base = {cloudflare: {bucket: "icr"}, warehouses: {}, sites: [{name: "a", path: "/", dir: "a"}]};
+  assert.deepEqual(validate(normalize({...base, cloudflare: {bucket: "icr", d1: "observatory", worker: "gate"}}, "/r")), []);
+  const errors = validate(normalize({...base, cloudflare: {bucket: "icr", d1: "bad name"}}, "/r")).join("\n");
+  assert.match(errors, /cloudflare.d1: a D1 database name/);
+  assert.match(errors, /cloudflare.d1: needs cloudflare.worker/);
+});

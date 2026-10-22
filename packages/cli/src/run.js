@@ -12,7 +12,8 @@ export function run(cmd, args, {cwd, env, quiet = false} = {}) {
 export function output(cmd, args, {cwd, env} = {}) {
   const r = spawnSync(cmd, args, {cwd, env: env ?? process.env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"]});
   if (r.error) throw new Error(r.error.code === "ENOENT" ? `${cmd} is not installed (or not on PATH)` : r.error.message);
-  if (r.status !== 0) throw new Error(`${cmd} ${args[0] ?? ""} failed (exit ${r.status}): ${r.stderr.trim()}`);
+  // Some tools (wrangler --json) report errors on stdout, so both go in the message.
+  if (r.status !== 0) throw new Error(`${cmd} ${args[0] ?? ""} failed (exit ${r.status}): ${[r.stderr, r.stdout].map((x) => x.trim()).filter(Boolean).join("\n")}`);
   return r.stdout;
 }
 

@@ -7,7 +7,7 @@ import {accessLevel, findConfig, loadConfig, nestedSites, normalize, selectSites
 import {ensureStore, npmCached, patchFramework, patchSiteCache, placeEngine} from "./duckdb2.js";
 import {framework, siteConfig, siteConfigFile, siteOutput, siteRoot} from "./framework.js";
 import {checkBucket, pull as pullWarehouse, upload, warehouseCache} from "./r2.js";
-import {run, serve} from "./run.js";
+import {output, run, serve} from "./run.js";
 
 const TEMPLATE = join(dirname(fileURLToPath(import.meta.url)), "..", "template");
 
@@ -34,6 +34,33 @@ function siteEnv(data) {
   const env = {...process.env, DUCKDB_AGENT_MODE: "0"};
   if (data) env.DATA = data;
   return env;
+}
+
+/** The gate's migrations folder, in the @recodelabs/observatory-gate installed for the worker folder. */
+export function gateMigrations(worker) {
+  for (let d = resolve(worker); ; d = dirname(d)) {
+    const dir = join(d, "node_modules", "@recodelabs", "observatory-gate", "migrations");
+    if (existsSync(dir)) return dir;
+    if (dirname(d) === d) throw new Error(`${worker}: @recodelabs/observatory-gate is not installed`);
+  }
+}
+
+/** Migration files not yet applied to the remote D1 database, read without changing it. */
+export function pendingMigrations(worker, d1, {query = queryD1} = {}) {
+  const files = readdirSync(gateMigrations(worker)).filter((f) => f.endsWith(".sql")).sort();
+  const applied = new Set(query(worker, d1, "SELECT name FROM d1_migrations"));
+  return files.filter((f) => !applied.has(f));
+}
+
+function queryD1(worker, d1, sql) {
+  let out;
+  try {
+    out = output("npx", ["wrangler", "d1", "execute", d1, "--remote", "--json", "--command", sql], {cwd: worker});
+  } catch (e) {
+    if (/no such table: d1_migrations/.test(e.message)) return [];   // a new database: nothing applied
+    throw e;
+  }
+  return JSON.parse(out).flatMap((r) => r.results ?? []).map((row) => row.name);
 }
 
 // Framework's own entries in a site's cache: imported packages, its client bundles, the build
@@ -154,10 +181,26 @@ export async function deploy(names, opts) {
     outputs.set(site, dist);
   }
   for (const site of sites) upload(config, site, outputs.get(site), {dryRun: opts.dryRun, prune: opts.prune});
-  // The host goes last, so a wrangler failure never leaves a site un-uploaded.
-  if (config.cloudflare.worker && !opts.dryRun && opts.worker !== false) {
-    console.error(`== deploy ${relative(config.root, config.cloudflare.worker) || "."} (wrangler)`);
-    run("npx", ["wrangler", "deploy"], {cwd: config.cloudflare.worker});
+  // The host goes last, so a wrangler failure never leaves a site un-uploaded. A gate's database
+  // is migrated first, so the new Worker never runs against an old schema.
+  const {worker, d1} = config.cloudflare;
+  if (worker && opts.worker !== false) {
+    const where = relative(config.root, worker) || ".";
+    if (d1) {
+      // Read-only first (a dry run touches nothing), and again after applying: the Worker is
+      // deployed only once nothing is pending, so declining wrangler's prompt stops the deploy.
+      const pending = pendingMigrations(worker, d1);
+      console.error(`== D1 ${d1}: ${pending.length ? `pending ${pending.join(", ")}` : "up to date"} (${where})`);
+      if (pending.length && !opts.dryRun) {
+        run("npx", ["wrangler", "d1", "migrations", "apply", d1, "--remote"], {cwd: worker});
+        const left = pendingMigrations(worker, d1);
+        if (left.length) throw new Error(`D1 ${d1}: still pending ${left.join(", ")}; the gate was not deployed`);
+      }
+    }
+    if (!opts.dryRun) {
+      console.error(`== deploy ${where} (wrangler)`);
+      run("npx", ["wrangler", "deploy"], {cwd: worker});
+    }
   }
   for (const site of sites) console.log(`${config.host ?? ""}${site.path}`);
 }
