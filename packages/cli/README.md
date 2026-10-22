@@ -5,14 +5,12 @@ warehouse in R2. Lifted from the ICR's `campaignhq/deploy.sh` and `duckdb-wasm2.
 
 ## Install
 
-The packages are on GitHub Packages. In the project that holds your sites:
+The packages are on npm. In the project that holds your sites:
 
 ```bash
-echo "@recodelabs:registry=https://npm.pkg.github.com" >> .npmrc
 npm install @observablehq/framework@1.13.4 @recodelabs/observatory-cli @recodelabs/observatory-components
 ```
 
-Installing needs a GitHub token with `read:packages` (`npm login --registry https://npm.pkg.github.com`).
 Node 22 or later.
 
 The commands also use:

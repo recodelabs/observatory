@@ -39,3 +39,7 @@ npm run dev              # observatory dev demo --local
 ```
 
 See `packages/gate/README.md` for running the gate locally with wrangler.
+
+## Licence
+
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
