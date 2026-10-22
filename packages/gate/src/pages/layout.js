@@ -29,7 +29,7 @@ export function safeNext(next) {
       || next.includes("\\") || /[\u0000-\u001f\u007f-\u009f]/.test(next)
       || /%2[fF]|%5[cC]/.test(next.split(/[?#]/)[0])) return "/";
   try {
-    return new URL(next, "https://doorman.invalid").origin === "https://doorman.invalid" ? next : "/";
+    return new URL(next, "https://gate.invalid").origin === "https://gate.invalid" ? next : "/";
   } catch {
     return "/";
   }

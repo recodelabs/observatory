@@ -1,7 +1,8 @@
 import {Hono} from "hono";
 import {page, html, escape} from "./layout.js";
 import {csrfToken, checkCsrf} from "./csrf.js";
-import {dbFor, listUsers, setStatus, getUser} from "../users.js";
+import {dbFor, listUsers, setStatus, setRole, deleteUser, getUser} from "../users.js";
+import {isAdmin, statusOf, holds} from "../access.js";
 import {sendMail, MailError} from "../mail.js";
 
 export const admin = new Hono();
@@ -11,9 +12,11 @@ export const admin = new Hono();
 // leaves the context unfinalized, so these forward the promise instead.
 admin.use("/admin/*", (c, next) => requireAdmin(c, next));
 admin.use("/admin", (c, next) => requireAdmin(c, next));
+// Checked on every request, from the user as stored now: the admin page and its actions are
+// for admins only (made one here, or named by auth.admins), and anyone else gets a plain 404.
 async function requireAdmin(c, next) {
   const s = c.get("session");
-  if (!s?.user || s.user.role !== "admin" || s.user.status !== "active") return c.text("Not found", 404);
+  if (!s?.user || !isAdmin(c.get("config"), s.user)) return c.text("Not found", 404);
   await next();
 }
 
@@ -24,18 +27,21 @@ admin.get("/admin", async (c) => {
   const s = c.get("session");
   const csrf = await csrfToken(c.env.BETTER_AUTH_SECRET, s.session.token);
   const users = await listUsers(dbFor(c.env));
-  const btn = (action, userId, label) => `<form method="post" action="/_door/admin/${action}"><input type="hidden" name="userId" value="${escape(userId)}"><input type="hidden" name="csrf" value="${csrf}"><button type="submit">${label}</button></form>`;
+  const btn = (action, userId, label) => `<form method="post" action="/_obs/admin/${action}"><input type="hidden" name="userId" value="${escape(userId)}"><input type="hidden" name="csrf" value="${csrf}"><button type="submit">${label}</button></form>`;
+  const byConfig = (u) => config.auth.admins.some((cond) => holds(cond, {user: u}));
   const rows = users.map((u) => {
     const self = u.id === s.user.id;
+    const status = statusOf(config, u);
+    const role = byConfig(u) ? "admin (config)" : u.role;
     const actions = [
-      u.status !== "active" ? btn(u.status === "pending" ? "approve" : "enable", u.id, u.status === "pending" ? "Approve" : "Enable") : (!self ? btn("disable", u.id, "Disable") : ""),
-      u.role === "admin" ? (!self ? btn("remove-admin", u.id, "Remove admin") : "") : btn("make-admin", u.id, "Make admin"),
+      status !== "active" ? btn(status === "pending" ? "approve" : "enable", u.id, status === "pending" ? "Approve" : "Enable") : (!self ? btn("disable", u.id, "Disable") : ""),
+      byConfig(u) ? "" : u.role === "admin" ? (!self ? btn("remove-admin", u.id, "Remove admin") : "") : btn("make-admin", u.id, "Make admin"),
       !self ? btn("delete", u.id, "Delete") : ""
     ].join("");
-    return `<tr><td>${escape(u.email)}<br><span class="muted">${escape(u.name)}</span></td><td>${escape(u.status)}</td><td>${escape(u.role)}</td><td>${fmt(u.createdAt)}</td><td>${fmt(u.lastSignIn)}</td><td>${actions}</td></tr>`;
+    return `<tr><td>${escape(u.email)}<br><span class="muted">${escape(u.name)}${u.emailVerified ? "" : " · email not confirmed"}</span></td><td>${escape(status)}</td><td>${escape(role)}</td><td>${fmt(u.createdAt)}</td><td>${fmt(u.lastSignIn)}</td><td>${actions}</td></tr>`;
   }).join("");
   const body = `<table><thead><tr><th>User</th><th>Status</th><th>Role</th><th>Created</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-<p class="muted">Signed in as ${escape(s.user.email)} · <a href="/">Site</a></p><form method="post" action="/_door/signout"><button class="quiet">Sign out</button></form>`;
+<p class="muted">Signed in as ${escape(s.user.email)} · <a href="/">Site</a></p><form method="post" action="/_obs/signout"><button class="quiet">Sign out</button></form>`;
   return html(c, page({config, title: "Users", body, wide: true, message: c.req.query("ok") ? "Done." : null}));
 });
 
@@ -58,9 +64,10 @@ admin.post("/admin/:action", async (c) => {
   const db = dbFor(c.env);
   const target = await getUser(db, userId);
   if (!target) return c.text("No such user", 404);
-  const auth = c.get("auth");
-  if (spec.remove) await auth.api.removeUser({body: {userId}, headers: c.req.raw.headers});
-  if (spec.role) await auth.api.setRole({body: {userId, role: spec.role}, headers: c.req.raw.headers});
+  // Written to D1 directly: an admin named by auth.admins has no admin role stored, which
+  // Better Auth's own admin endpoints would require.
+  if (spec.remove) await deleteUser(db, userId);
+  if (spec.role) await setRole(db, userId, spec.role);
   if (spec.status) await setStatus(db, userId, spec.status);
   if (spec.notify && target.status !== "active") {
     const config = c.get("config");
@@ -70,5 +77,5 @@ admin.post("/admin/:action", async (c) => {
       if (!(err instanceof MailError)) throw err;
     }
   }
-  return c.redirect("/_door/admin?ok=1", 302);
+  return c.redirect("/_obs/admin?ok=1", 302);
 });

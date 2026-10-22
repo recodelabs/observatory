@@ -1,14 +1,24 @@
 import {env} from "cloudflare:workers";
 import {createApp} from "../src/index.js";
 
-// The suite's deployment config: a bare site with two page rules (routes.test.js and
-// pages.test.js exercise them). Sign-up policy lives in auth.test.js, which builds its own.
-export const SITE = "testsite";
-export const PAGES = [{match: "about", access: "public"}, {match: "ntd", access: "disabled"}];
+// The suite's deployment config: a main site for signed-in users with one public page, a
+// disabled site at /off/, and a nested site at /ug/ open to one email domain. admin@example.org is an
+// admin by config once verified; allowed.example addresses need no approval once verified.
+// Sign-up policy variations live in auth.test.js, which builds its own.
 export const BRAND = "Test Site";
-export const app = createApp({site: {name: SITE}, brand: {title: BRAND}, pages: PAGES});
-
-export const PREFIX = `_site/${SITE}/`;
+export const PREFIX = "_site/test/";
+export const CONFIG = {
+  brand: {title: BRAND},
+  cloudflare: {sites: PREFIX},
+  sites: [
+    {name: "main", path: "/", access: "signed-in"},
+    {name: "ug", path: "/ug/", access: [{emailDomain: "team.example"}]},
+    {name: "off", path: "/off/", access: "disabled"}
+  ],
+  access: [{match: "about", allow: "public"}],
+  auth: {admins: [{email: "admin@example.org"}], email: {allowedDomains: ["allowed.example"]}}
+};
+export const app = createApp(CONFIG);
 export async function putSite(env, files) {
   for (const [key, body] of Object.entries(files)) await env.SITE.put(PREFIX + key, body);
 }
@@ -48,6 +58,11 @@ export async function signIn(email) {
 
 export async function setStatus(email, status) {
   await env.DB.prepare("update user set status = ? where email = ?").bind(status, email).run();
+}
+
+/** Mark an address as confirmed, as following the verification link would. */
+export async function verify(email) {
+  await env.DB.prepare("update user set emailVerified = 1 where email = ?").bind(email).run();
 }
 
 // Calls the Hono app directly (app.fetch(request, env)) rather than going through

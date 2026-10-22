@@ -4,9 +4,9 @@ import {signup} from "./signup.js";
 import {pending} from "./pending.js";
 import {admin} from "./admin.js";
 
-export const doorPages = new Hono();
-doorPages.route("/", login);
-doorPages.route("/", signup);
-doorPages.route("/", pending);
-doorPages.route("/", admin);
-doorPages.all("*", (c) => c.text("Not found", 404));
+export const obsPages = new Hono();
+obsPages.route("/", login);
+obsPages.route("/", signup);
+obsPages.route("/", pending);
+obsPages.route("/", admin);
+obsPages.all("*", (c) => c.text("Not found", 404));
