@@ -2,6 +2,7 @@
   "name": "observatory",
   "private": true,
   "description": "Observable Framework dashboards on a data warehouse: build, deploy and access control on Cloudflare",
+  "license": "Apache-2.0",
   "workspaces": [
     "packages/*",
     "examples/*"

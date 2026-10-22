@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "observatory: build, preview and deploy Observable Framework sites from a data warehouse in R2",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/recodelabs/observatory.git",
