@@ -212,20 +212,29 @@ doorman's request flow stays. It changes in four ways.
 - **A page's data and modules are never less restricted than the page.**
   - At deploy time, `observatory check` reads each built page's references. These are its
     data files (`_file/…`) and its own modules (`_import/…`, which can hold page code and
-    embedded data). It writes a manifest that gives every file the rule of the most
-    restricted page that uses it. The gate applies the manifest.
-  - Two kinds of mismatch are deployment errors, not warnings:
-    - an exception (`access[]`) that leaves a page's data or modules more open than the
-      page;
-    - a file shared by pages with different rules, unless the config names it explicitly.
-  - A public page whose data is restricted gets a warning, because its charts would break.
+    embedded data). It writes a manifest of the rule for every file, and the gate applies
+    the manifest.
+  - **A file used by one page** gets that page's rule.
+  - **A file used by several pages** gets all of their rules at once: a viewer must meet
+    every one of them. For example, a file shared by a page open to group A and a page open
+    to group B is visible only to people in both. The config can make a file stricter than
+    that, never more open.
+  - **An exception (`access[]`) that would leave a page's data or modules more open than
+    the page** stops the deploy.
+  - **A public page whose data is restricted** gets a warning, because its charts would
+    break.
 - **Framework's runtime is public within a site that has public pages.**
-  - The runtime is `_observablehq/…` and the npm packages under `_npm/…`, which hold no
-    project code or data. Within a site with any public page, they're public.
-  - `_import/…` is not part of this, because it holds the project's own modules. It
-    follows the manifest above.
-  - doorman made all three public as soon as any page was public. That could expose a
-    restricted page's modules.
+  - What's made public is an allowlist of the files Framework ships for its client: the
+    scripts, styles and fonts under `_observablehq/…`, and the npm packages under
+    `_npm/…`. None of them hold project code or data.
+  - **Not on the allowlist:**
+    - `_import/…`, the project's own modules. It follows the manifest above.
+    - Framework's search index (`_observablehq/minisearch.json`), which holds the titles
+      and text of every page. In a site whose pages don't all share one rule,
+      `observatory build` turns search off (v1). In a site where they do, the index gets
+      that rule.
+  - doorman made all three runtime folders public as soon as any page was public. That
+    could expose a restricted page's modules and search text.
 
 ### 4. The Info Gateway
 

@@ -53,16 +53,19 @@ $K config credentials --server http://localhost:8080 --realm master \
   --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null 2>&1
 $K get "realms/$REALM" >/dev/null 2>&1 || { echo "no realm $REALM" >&2; exit 1; }
 
-# get_id PATH FIELD VALUE: the id of the object at PATH whose FIELD equals VALUE exactly.
+# get_id PATH FIELD VALUE: the id of the object at PATH whose FIELD equals VALUE exactly;
+# nothing when there is none. A failed read stops the script (it is not taken as "none").
 get_id() {
   local rows a b
-  rows=$($K get "$1" -r "$REALM" --fields "id,$2" --format csv --noquotes 2>/dev/null || true)
+  if ! rows=$($K get "$1" -r "$REALM" --fields "id,$2" --format csv --noquotes); then
+    echo "reading $1 in $REALM failed" >&2; exit 1
+  fi
   while IFS=, read -r a b; do
     if [ "$b" = "$3" ]; then echo "$a"; return; fi
   done <<< "$rows"
 }
 
-id=$(get_id clients clientId "$CLIENT")
+id=$(get_id clients clientId "$CLIENT") || exit 1
 settings=(-s enabled=true -s publicClient=false -s standardFlowEnabled=true
   -s directAccessGrantsEnabled=false -s implicitFlowEnabled=false -s serviceAccountsEnabled=false
   -s "redirectUris=[$redirects]" -s "webOrigins=[$origins]"
@@ -82,7 +85,7 @@ mapper() {
   local cfg=(-s "name=$name" -s protocol=openid-connect -s "protocolMapper=$type"
     -s "config.\"claim.name\"=$claim" -s 'config."id.token.claim"=true' -s 'config."access.token.claim"=true'
     -s 'config."userinfo.token.claim"=true' "$@")
-  local mid; mid=$(get_id "clients/$id/protocol-mappers/models" name "$name")
+  local mid; mid=$(get_id "clients/$id/protocol-mappers/models" name "$name") || exit 1
   if [ -z "$mid" ]; then
     $K create "clients/$id/protocol-mappers/models" -r "$REALM" "${cfg[@]}" >/dev/null
     echo "mapper $name added"
@@ -95,10 +98,14 @@ mapper groups oidc-group-membership-mapper groups -s 'config."full.path"=true'
 mapper realm_roles oidc-usermodel-realm-role-mapper realm_roles -s 'config.multivalued=true' -s 'config."jsonType.label"=String'
 
 for g in "${glist[@]}"; do
-  if [ -n "$(get_id groups name "$g")" ]; then
+  gid=$(get_id groups name "$g") || exit 1
+  if [ -n "$gid" ]; then
     echo "group /$g exists"
   else
-    $K create groups -r "$REALM" -s "name=$g" >/dev/null && echo "group /$g created"
+    if ! $K create groups -r "$REALM" -s "name=$g" >/dev/null; then
+      echo "creating group /$g in $REALM failed" >&2; exit 1
+    fi
+    echo "group /$g created"
   fi
 done
 
