@@ -22,15 +22,20 @@ const strings = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string")
 /** The groups and realm roles in a token's claims, as stored. */
 export function claimsRow(providerId, subject, userId, claims) {
   return {providerId, subject, userId, groups: JSON.stringify(strings(claims.groups)),
-    roles: JSON.stringify(strings(claims.realm_roles)), refreshedAt: Date.now(), refreshingUntil: 0};
+    roles: JSON.stringify(strings(claims.realm_roles)), refreshedAt: Date.now(), refreshingUntil: 0, refreshLock: null};
 }
 
+/** Store claims from a sign-in. A refresh still running for the account loses its lock and discards its result. */
 export async function saveClaims(db, row) {
   await db.insertInto("oidcClaims").values(row)
     .onConflict((oc) => oc.columns(["providerId", "subject"]).doUpdateSet({userId: row.userId, groups: row.groups,
-      roles: row.roles, refreshedAt: row.refreshedAt, refreshingUntil: 0}))
+      roles: row.roles, refreshedAt: row.refreshedAt, refreshingUntil: 0, refreshLock: null}))
     .execute();
 }
+
+// The provider account each OAuth callback has just signed in, by the callback's endpoint context
+// (one per request), so the session it creates is bound to exactly that account.
+const signedInSubject = new WeakMap();
 
 /**
  * At sign-in through a provider's callback, store the groups and realm roles from the ID token
@@ -44,6 +49,7 @@ async function storeClaimsAtSignIn(db, providerIds, account, ctx) {
   const claims = jwtPayload(account.idToken);
   if (!claims || claims.sub !== account.accountId) return;
   await saveClaims(db, claimsRow(account.providerId, account.accountId, account.userId, claims));
+  signedInSubject.set(ctx, {providerId: account.providerId, subject: account.accountId, userId: account.userId});
 }
 
 /** One Better Auth instance per request: Workers only expose bindings at request time. */
@@ -110,20 +116,18 @@ export function createAuth(env, config) {
         create: {
           // Stamp each session with how it was signed in. Only the OAuth callback for a configured
           // provider makes an OIDC session; every other way in (password, magic link, email
-          // confirmation) is "email". An OIDC session is also bound to the provider account the
-          // callback has just signed in: the user's account for that provider updated last, which
-          // the callback writes right before it creates the session. If a user has two accounts
-          // for one provider (a Keycloak user deleted and made again with the same address), each
-          // session stays with its own subject and its own claims.
+          // confirmation) is "email". An OIDC session is also bound to the provider account this
+          // same callback request has just signed in (recorded by the account hooks below, by
+          // request), never one found by looking; with none recorded, no session is made. If a
+          // user has two accounts for one provider (a Keycloak user deleted and made again with
+          // the same address), each session stays with its own subject and its own claims.
           before: async (session, ctx) => {
             const id = ctx?.params?.id;
             const oidc = typeof ctx?.path === "string" && ctx.path.startsWith("/callback/") && providerIds.has(id);
             if (!oidc) return {data: {...session, provider: "email", subject: null}};
-            const account = await db.selectFrom("account").select("accountId")
-              .where("userId", "=", session.userId).where("providerId", "=", id)
-              .orderBy("updatedAt", "desc").limit(1).executeTakeFirst();
-            if (!account) return false;
-            return {data: {...session, provider: id, subject: account.accountId}};
+            const signed = ctx ? signedInSubject.get(ctx) : null;
+            if (!signed || signed.providerId !== id || signed.userId !== session.userId) return false;
+            return {data: {...session, provider: id, subject: signed.subject}};
           }
         }
       },

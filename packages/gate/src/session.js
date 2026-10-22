@@ -62,13 +62,16 @@ export async function readWho(auth, config, request, {wait = sleep} = {}) {
     if (!row || row.userId !== got.user.id) return endSession(auth, got);
     if (Date.now() - Number(row.refreshedAt) > maxAge) {
       const now = Date.now();
-      const won = await auth.db.updateTable("oidcClaims").set({refreshingUntil: now + 10e3})
+      const lock = crypto.randomUUID();
+      const won = await auth.db.updateTable("oidcClaims").set({refreshingUntil: now + 10e3, refreshLock: lock})
         .where("providerId", "=", provider).where("subject", "=", subject)
         .where("refreshedAt", "=", row.refreshedAt).where("refreshingUntil", "<", now)
         .executeTakeFirst();
       if (Number(won.numUpdatedRows) === 1) {
-        row = await refresh(auth, got, provider, subject);
-        if (!row) return endSession(auth, got);
+        const result = await refresh(auth, got, provider, subject, lock);
+        if (result === "failed") return endSession(auth, got);
+        if (result === "superseded") return null;   // a sign-in or a later refresh wrote first: refuse this request only
+        row = result;
       } else {
         row = null;
         for (let i = 0; i < 10 && !row; i++) {
@@ -89,8 +92,12 @@ export async function readWho(auth, config, request, {wait = sleep} = {}) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Refresh one account's tokens and store its claims from the new access token; null on failure. */
-async function refresh(auth, got, provider, subject) {
+/**
+ * Refresh one account's tokens and store its claims from the new access token. Returns the new
+ * row, "failed", or "superseded" when the lock was lost meanwhile (a sign-in stored newer claims,
+ * or the lock ran out and another refresh took it): then nothing is written.
+ */
+async function refresh(auth, got, provider, subject, lock) {
   const account = await auth.db.selectFrom("account").select("id")
     .where("userId", "=", got.user.id).where("providerId", "=", provider).where("accountId", "=", subject)
     .executeTakeFirst();
@@ -103,14 +110,19 @@ async function refresh(auth, got, provider, subject) {
       claims = null;
     }
   }
+  const mine = (q) => q.where("providerId", "=", provider).where("subject", "=", subject).where("refreshLock", "=", lock);
   if (!claims || claims.sub !== subject) {
-    // Fail closed for the whole account: every session bound to it ends at its next request.
-    await auth.db.deleteFrom("oidcClaims").where("providerId", "=", provider).where("subject", "=", subject).execute();
-    return null;
+    // Fail closed for the whole account: its claims go, and every session bound to it ends now,
+    // so a later sign-in that stores claims again can't bring those sessions back.
+    const gone = await mine(auth.db.deleteFrom("oidcClaims")).executeTakeFirst();
+    if (Number(gone.numDeletedRows) !== 1) return "superseded";
+    await auth.db.deleteFrom("session").where("provider", "=", provider).where("subject", "=", subject).execute();
+    return "failed";
   }
   const row = claimsRow(provider, subject, got.user.id, claims);
-  await saveClaims(auth.db, row);
-  return row;
+  const saved = await mine(auth.db.updateTable("oidcClaims").set({groups: row.groups, roles: row.roles,
+    refreshedAt: row.refreshedAt, refreshingUntil: 0, refreshLock: null})).executeTakeFirst();
+  return Number(saved.numUpdatedRows) === 1 ? row : "superseded";
 }
 
 function claimsOf(db, providerId, subject) {

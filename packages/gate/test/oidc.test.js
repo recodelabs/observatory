@@ -158,6 +158,20 @@ describe("sign-in with an OIDC provider", () => {
       provider.refresh = "ok";
     }
   });
+  it("signing in again after a failed refresh doesn't bring the account's old sessions back", async () => {
+    const first = await signInWithProvider();
+    const second = await signInWithProvider();
+    provider.refresh = "fail";
+    await makeStale();
+    try {
+      expect((await call("/ug/", {headers: {...NAV, cookie: first}})).status).toBe(302);
+    } finally {
+      provider.refresh = "ok";
+    }
+    const fresh = await signInWithProvider();
+    expect((await call("/ug/", {headers: {...NAV, cookie: second}})).status).toBe(302);
+    expect((await call("/ug/", {headers: {...NAV, cookie: fresh}})).status).toBe(200);
+  });
   it("a Keycloak user made again with the same address doesn't get the old one's groups", async () => {
     const old = await signInWithProvider();
     provider.sub = "kc-user-2";

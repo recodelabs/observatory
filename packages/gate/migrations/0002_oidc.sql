@@ -12,8 +12,10 @@ CREATE TABLE "oidcClaims" (
   "groups" TEXT NOT NULL DEFAULT '[]',
   "roles" TEXT NOT NULL DEFAULT '[]',
   "refreshedAt" INTEGER NOT NULL,
-  -- While one request refreshes the claims, others wait until this time (ms) rather than refresh too.
+  -- While one request refreshes the claims, others wait until this time (ms) rather than refresh
+  -- too. refreshLock names that refresh: only the refresh holding it may write its result.
   "refreshingUntil" INTEGER NOT NULL DEFAULT 0,
+  "refreshLock" TEXT,
   PRIMARY KEY ("providerId", "subject")
 );
 CREATE INDEX "oidcClaims_user" ON "oidcClaims"("userId", "providerId");
