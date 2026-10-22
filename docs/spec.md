@@ -163,6 +163,10 @@ first person to register an active admin is removed (see "Who is an admin").
 
 ### 2. Sign-in with Keycloak
 
+Keycloak is optional. Email sign-in (Better Auth) is the default, and most projects need
+nothing else. A project that has Keycloak, such as the ICR, lists its realms under
+`auth.oidc`.
+
 - **How it works:**
   - Better Auth's generic OAuth/OIDC support, with one provider per Keycloak realm.
   - The login page shows a "Sign in with …" button for each provider, next to the email
@@ -274,6 +278,10 @@ first person to register an active admin is removed (see "Who is an admin").
   `auth.admins` or from D1.
   - **Later, if needed:** per-site admins, and an `editor` level that can edit pages but
     not manage users. v1 has the two levels only.
+- **The account bar:** the gate adds a small box to every page a signed-in user opens. It
+  shows who they are and a sign-out button, and for admins a "Manage users" link to the
+  admin page. Later it carries the "Edit this page" link. Pages with it are
+  `private, no-store`.
 - **Failures:**
   - not signed in → the login page (or 401 for data requests);
   - signed in but not allowed → a 403 page that says which group grants access.

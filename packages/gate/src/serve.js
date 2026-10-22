@@ -53,6 +53,9 @@ export async function serveFromR2(bucket, prefix, request, path, visibility, not
     headers.set("content-type", contentType(key));
     headers.set("accept-ranges", "bytes");
     if (wasm) headers.set("vary", "accept-encoding");
+    // A page differs with the cookie (the gate adds the account bar for a signed-in user), so a
+    // browser must not reuse the anonymous copy once it has one.
+    if (key.endsWith(".html")) headers.set("vary", "cookie");
     if (brotli) headers.set("content-encoding", "br");
     // A gated file must go back to the gate every time (no-cache: revalidated, a cheap 304),
     // so the browser can't reuse it after its user signs out or loses access. Public files

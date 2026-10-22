@@ -1,9 +1,10 @@
 import {Hono} from "hono";
 import {loadConfig} from "./config.js";
-import {compileAccess, decide, describeRule} from "./access.js";
+import {compileAccess, decide, describeRule, isAdmin, statusOf} from "./access.js";
+import {accountBar, withAccountBar} from "./account-bar.js";
 import {serveFromR2, notFound} from "./serve.js";
 import {createAuth} from "./auth.js";
-import {readSession, SessionUnavailable} from "./session.js";
+import {readWho, SessionUnavailable} from "./session.js";
 import {obsPages} from "./pages/index.js";
 import {page, html, escape} from "./pages/layout.js";
 
@@ -49,9 +50,15 @@ export function createApp(rawConfig) {
     await next();
   });
 
-  // Better Auth's admin plugin endpoints check only the stored role, not the gate's idea of an
-  // admin (disabled users, auth.admins), so they are closed; the admin page does that work.
-  app.all("/auth/admin/*", (c) => c.text("Not found", 404));
+  // Closed Better Auth endpoints:
+  // - the admin plugin's, which check only the stored role, not the gate's idea of an admin
+  //   (disabled users, auth.admins); the admin page does that work;
+  // - the account endpoints that hand provider tokens to the browser, or link and unlink
+  //   provider accounts; the gate refreshes tokens itself (session.js), and keeps them server-side.
+  for (const p of ["/auth/admin/*", "/auth/get-access-token", "/auth/refresh-token", "/auth/account-info",
+    "/auth/list-accounts", "/auth/link-social", "/auth/unlink-account"]) {
+    app.all(p, (c) => c.text("Not found", 404));
+  }
   app.all("/auth/*", (c) => c.get("auth").handler(c.req.raw));
 
   // doorman's pages moved from /_door/ to /_obs/; old links (in sign-in emails, bookmarks) follow.
@@ -62,7 +69,7 @@ export function createApp(rawConfig) {
 
   app.use("/_obs/*", async (c, next) => {
     try {
-      c.set("session", await readSession(c.get("auth"), c.req.raw));
+      c.set("session", await readWho(c.get("auth"), config, c.req.raw, c.env));
     } catch (err) {
       if (err instanceof SessionUnavailable) return c.text("Service unavailable", 503);
       throw err;
@@ -84,18 +91,22 @@ export function createApp(rawConfig) {
     const {site, rule} = resolve(path);
     const notFoundKey = site ? `${site.prefix}404.html` : null;
 
-    let user = null;
-    if (rule !== "disabled" && rule !== "public") {
+    const nav = isNavigation(request);
+    let who = null;
+    // A public page is served without a session lookup, except a page a browser with a cookie
+    // navigates to: that one gets the account bar if someone is signed in.
+    const wantsBar = rule === "public" && nav && request.headers.has("cookie");
+    if ((rule !== "disabled" && rule !== "public") || wantsBar) {
       try {
-        user = (await readSession(c.get("auth"), request))?.user ?? null;
+        who = await readWho(c.get("auth"), config, request, c.env);
       } catch (err) {
-        if (err instanceof SessionUnavailable) return c.text("Service unavailable", 503);
-        throw err;
+        // A public page still loads when the session store is down; only the bar is missing.
+        if (err instanceof SessionUnavailable && !wantsBar) return c.text("Service unavailable", 503);
+        if (!(err instanceof SessionUnavailable)) throw err;
       }
     }
-    // Keycloak claims arrive with sign-in through Keycloak (the next step); none yet.
-    const d = decide(config, rule, user);
-    const nav = isNavigation(request);
+    const user = who?.user ?? null;
+    const d = decide(config, rule, who);
     switch (d.kind) {
       case "notfound":
         return notFound(c.env.SITE, notFoundKey ? config.sitesFolder + notFoundKey : null, request);
@@ -112,8 +123,15 @@ export function createApp(rawConfig) {
 <p>Ask an administrator for access, or sign in with another account.</p>`;
         return html(c, page({config, title: "No access", body: body + `<form method="post" action="/_obs/signout"><button type="submit" class="quiet">Sign out</button></form>`}), 403);
       }
-      default:
-        return serveFromR2(c.env.SITE, config.sitesFolder, request, path, d.visibility, notFoundKey);
+      default: {
+        const personal = nav && user && request.method === "GET" && statusOf(config, user, who.provider) === "active";
+        if (!personal) return serveFromR2(c.env.SITE, config.sitesFolder, request, path, d.visibility, notFoundKey);
+        // A page with the account bar is always sent whole: a 304 against the copy the browser
+        // kept (perhaps from before signing in) would show that copy, without the bar.
+        const fresh = new Request(request.url, {headers: new Headers([...request.headers].filter(([k]) => !/^if-/i.test(k)))});
+        const res = await serveFromR2(c.env.SITE, config.sitesFolder, fresh, path, d.visibility, notFoundKey);
+        return withAccountBar(res, accountBar(who, {admin: isAdmin(config, who)}));
+      }
     }
   });
 

@@ -32,7 +32,22 @@ public page, so those pages load for anonymous visitors. It holds no project cod
 The site's own modules (`_import/…`), data (`_file/…`) and search index
 (`_observablehq/minisearch.json`) follow the site's rule.
 
+## The account bar
+
+On every dashboard page a signed-in user opens, the gate adds a small box in the bottom-right
+corner with:
+- their email, and the Keycloak realm if they signed in with one;
+- a "Sign out" button;
+- for admins, a "Manage users" link to `/_obs/admin`.
+
+It is added as the page is served, so builds don't change. A page with the bar is sent as
+`private, no-store`. Anonymous visitors to public pages don't get it.
+
 ## Who is who
+
+Email sign-in (Better Auth) is the default and needs nothing else. Keycloak, or any OpenID
+Connect provider, is optional: list it under `auth.oidc` and set its client secret, and the
+login page gets a "Sign in with …" button for it.
 
 - **Email users** sign up with a password, or sign in with a link by email. Every sign-up
   gets an email to confirm the address. An account starts as pending. It becomes active
@@ -42,7 +57,23 @@ The site's own modules (`_import/…`), data (`_file/…`) and search index
 - **Rules** (`access` in the config) are `"public"`, `"signed-in"` (any active user),
   `"disabled"`, or a list of conditions, any one of which is enough:
   `{email}`, `{emailDomain}` (verified addresses only), `{oidc, group}`, `{oidc, role}`
-  (Keycloak, coming next), `{role: "admin"}`.
+  (Keycloak), `{role: "admin"}`.
+- **Keycloak users** (`auth.oidc: [{id, name, issuer, clientId}]`, secret
+  `OIDC_<ID>_SECRET`):
+  - **On sign-in:** they're active straight away, since Keycloak decided who they are. The
+    gate stores their groups and realm roles, from the provider's tokens, for that provider
+    account.
+  - **Which sessions count:** a group or role counts only in a session signed in through
+    that provider. An email session of the same person carries none.
+  - **Refresh:** after `auth.claimsMaxAge` (15 minutes) the gate refreshes the groups with
+    the refresh token, so someone taken out of a group loses access then. If the refresh
+    fails, the session ends.
+  - **Lifetime:** a Keycloak session also ends after `auth.oidcSessionHours` (12), however
+    much it's used.
+  - **Tokens:** they stay in D1. The account endpoints that would hand them to a browser
+    are closed.
+  - **Keycloak setup:** `keycloak/oidc-client.sh` sets up a realm's client, mappers and
+    groups.
 - **Admins** see every site and use the admin page. An admin is someone who meets a
   condition in `auth.admins`, or was made an admin on the admin page. A disabled user is
   never an admin. The first person to sign up is *not* made an admin (doorman did that);
@@ -64,7 +95,8 @@ Its `wrangler.jsonc` needs:
 - a `SITE` R2 binding for the bucket;
 - `vars.BASE_URL`, the canonical https origin.
 
-The secrets are `BETTER_AUTH_SECRET` (32+ random characters) and `RESEND_API_KEY`. Without
+The secrets are `BETTER_AUTH_SECRET` (32+ random characters), `RESEND_API_KEY`, and
+`OIDC_<ID>_SECRET` for each Keycloak provider, if any. Without
 `RESEND_API_KEY`, mail is written to the log instead of being sent.
 
 `observatory deploy` will apply the D1 migrations and deploy the gate (phase 3, next).
