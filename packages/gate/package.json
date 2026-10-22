@@ -4,7 +4,11 @@
   "type": "module",
   "description": "Observatory's gate: sign-in and access rules in front of Observable Framework sites in R2. Cloudflare Worker + Better Auth + D1 + R2. Formerly doorman.",
   "license": "Apache-2.0",
-  "repository": "github:recodelabs/observatory",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/recodelabs/observatory.git",
+    "directory": "packages/gate"
+  },
   "exports": {
     ".": "./src/index.js"
   },
@@ -32,5 +36,9 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

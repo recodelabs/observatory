@@ -39,7 +39,8 @@ export default {
     bucket: "icr",              // the R2 bucket
     rclone: "r2",               // the rclone remote for it (default r2)
     sites: "_site/main/",       // where builds go in the bucket (default _site/)
-    worker: "worker"            // optional: a folder to `wrangler deploy` after uploading
+    worker: "gate",             // optional: a folder to `wrangler deploy` after uploading
+    d1: "observatory"           // optional: the gate's D1 database, migrated before the deploy
   },
   warehouses: {
     main: {r2: ""},                              // the bucket root
@@ -73,8 +74,45 @@ export default {
 | `observatory dev <site> [--local] [--pull] [preview options…]` | Framework's preview, with DuckDB 2.0 and `DATA` set. Data comes from the cached warehouse (pulled if there is none): `--pull` refreshes it, `--local` uses the warehouse's `local` copy. Other options, such as `--port 3000 --host 0.0.0.0`, go to `observable preview` |
 | `observatory pull [<site>…]` | Copies the sites' warehouses from R2 to `~/.cache/observatory/warehouses/` |
 | `observatory build [<site>…] [--local]` | Pulls, clears Framework's cached loader outputs, builds, and adds brotli copies of `.wasm` files. All sites when none are named |
-| `observatory deploy [<site>…] [--local] [--skip-build] [--dry-run] [--prune] [--no-worker]` | Builds, uploads each site, then runs `wrangler deploy` in `cloudflare.worker` |
+| `observatory deploy [<site>…] [--local] [--skip-build] [--dry-run] [--prune] [--no-worker]` | Builds and uploads each site. Then, in `cloudflare.worker`, applies the D1 migrations of `cloudflare.d1` (with `--dry-run`, lists them) and runs `wrangler deploy` |
 | `observatory check` | Checks the config and each site's Framework config; prints each site's access, warehouse, bucket folder and nested sites |
+
+## The gate
+
+The gate (`@recodelabs/observatory-gate`) is the Worker that serves the sites and decides who
+sees them. A project adds it in a folder of its own, named by `cloudflare.worker`:
+
+```js
+// gate/worker.js
+import {createGate} from "@recodelabs/observatory-gate";
+import config from "../observatory.config.js";
+export default createGate(config);
+```
+
+```jsonc
+// gate/wrangler.jsonc
+{
+  "name": "dashboards",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "account_id": "…",
+  "vars": {"BASE_URL": "https://dashboards.example.org"},
+  "d1_databases": [{"binding": "DB", "database_name": "observatory", "database_id": "…",
+    "migrations_dir": "../node_modules/@recodelabs/observatory-gate/migrations"}],
+  "r2_buckets": [{"binding": "SITE", "bucket_name": "icr"}],
+  "routes": [{"pattern": "dashboards.example.org", "custom_domain": true}]
+}
+```
+
+Before the first deploy:
+1. Create the D1 database (`npx wrangler d1 create observatory`).
+2. Set the secrets:
+   - `BETTER_AUTH_SECRET`: 32+ random characters;
+   - `RESEND_API_KEY`, for email;
+   - `OIDC_<ID>_SECRET` for each Keycloak provider.
+
+See the gate's README for its access rules and sign-in.
 
 ## Data loaders
 

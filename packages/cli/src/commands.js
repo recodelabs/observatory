@@ -154,10 +154,19 @@ export async function deploy(names, opts) {
     outputs.set(site, dist);
   }
   for (const site of sites) upload(config, site, outputs.get(site), {dryRun: opts.dryRun, prune: opts.prune});
-  // The host goes last, so a wrangler failure never leaves a site un-uploaded.
-  if (config.cloudflare.worker && !opts.dryRun && opts.worker !== false) {
-    console.error(`== deploy ${relative(config.root, config.cloudflare.worker) || "."} (wrangler)`);
-    run("npx", ["wrangler", "deploy"], {cwd: config.cloudflare.worker});
+  // The host goes last, so a wrangler failure never leaves a site un-uploaded. A gate's database
+  // is migrated first, so the new Worker never runs against an old schema.
+  const {worker, d1} = config.cloudflare;
+  if (worker && opts.worker !== false) {
+    const where = relative(config.root, worker) || ".";
+    if (d1) {
+      console.error(`== D1 ${d1}: ${opts.dryRun ? "pending migrations" : "apply migrations"} (${where})`);
+      run("npx", ["wrangler", "d1", "migrations", opts.dryRun ? "list" : "apply", d1, "--remote"], {cwd: worker});
+    }
+    if (!opts.dryRun) {
+      console.error(`== deploy ${where} (wrangler)`);
+      run("npx", ["wrangler", "deploy"], {cwd: worker});
+    }
   }
   for (const site of sites) console.log(`${config.host ?? ""}${site.path}`);
 }

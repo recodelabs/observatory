@@ -35,7 +35,8 @@ export function normalize(raw, root) {
   return {
     ...raw,
     root,
-    cloudflare: {...cf, rclone: cf.rclone ?? "r2", sites: cf.sites ?? "_site/", worker: cf.worker ? resolve(root, cf.worker) : null},
+    cloudflare: {...cf, rclone: cf.rclone ?? "r2", sites: cf.sites ?? "_site/", worker: cf.worker ? resolve(root, cf.worker) : null,
+      d1: cf.d1 ?? null},
     warehouses,
     sites: (raw.sites ?? []).map((s) => ({...s, dir: s?.dir ? resolve(root, s.dir) : null, warehouse: s?.warehouse ?? null}))
   };
@@ -53,6 +54,8 @@ export function validate(c) {
   if (!cf.bucket || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(cf.bucket)) errors.push("cloudflare.bucket: an R2 bucket name is required");
   if (!FOLDER.test(cf.sites) || cf.sites === "" || cf.sites.split("/").includes("..")) errors.push(`cloudflare.sites: a folder in the bucket ending in "/" (got ${JSON.stringify(cf.sites)})`);
   if (!/^[A-Za-z0-9_-]+$/.test(cf.rclone)) errors.push(`cloudflare.rclone: an rclone remote name (got ${JSON.stringify(cf.rclone)})`);
+  if (cf.d1 !== null && !/^[A-Za-z0-9_-]+$/.test(cf.d1)) errors.push(`cloudflare.d1: a D1 database name (got ${JSON.stringify(cf.d1)})`);
+  if (cf.d1 !== null && !cf.worker) errors.push("cloudflare.d1: needs cloudflare.worker, the folder whose wrangler config binds it");
   for (const w of Object.values(c.warehouses)) {
     if (typeof w.r2 !== "string" || !FOLDER.test(w.r2) || w.r2.split("/").includes("..")) {
       errors.push(`warehouses.${w.name}.r2: "" for the bucket root, or a folder ending in "/" (got ${JSON.stringify(w.r2)})`);

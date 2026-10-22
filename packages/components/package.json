@@ -1,6 +1,6 @@
 {
   "name": "@recodelabs/observatory-components",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Observable Framework components for Observatory sites: admin-unit maps on PMTiles, linked filters, choropleth classes",
   "license": "Apache-2.0",

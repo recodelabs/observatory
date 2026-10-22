@@ -1,4 +1,4 @@
-# Publish the CLI and components to npm (public) when a release tag (v0.1.0 …) is pushed. The
+# Publish the CLI, components and gate to npm (public) when a release tag (v0.1.0 …) is pushed. The
 # packages' versions must match the tag. npm trusted publishing: each package on npmjs.com names
 # this repo and workflow as its trusted publisher, so no token is stored here.
 name: publish
@@ -23,8 +23,8 @@ jobs:
       - run: npm test --workspaces --if-present
       - name: Check versions
         run: |
-          for p in cli components; do
+          for p in cli components gate; do
             v=$(node -p "require('./packages/$p/package.json').version")
             [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "packages/$p is $v, tag is $GITHUB_REF_NAME"; exit 1; }
           done
-      - run: npm publish --workspace packages/cli --workspace packages/components --provenance
+      - run: npm publish --workspace packages/cli --workspace packages/components --workspace packages/gate --provenance
