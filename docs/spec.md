@@ -32,9 +32,9 @@ history. doorman is no longer maintained on its own.
     Keycloak;
   - an admin page for the email users.
 - **The data too:** protect a page's data files with the same rules as the page.
-- **Editing:** let people edit a page's source from the site. The first version is a
-  link to GitHub's editor. Later, an editor in the gate opens a pull request and shows a
-  preview build.
+- **Editing:** let admins edit a page's Markdown in the gate. The first version commits
+  each save to GitHub. Deploying on commit, and later pull requests with preview builds,
+  follow.
 - **Shared parts:** maps (MapLibre, PMTiles), linked filters, DuckDB helpers and a
   default look.
 
@@ -61,7 +61,7 @@ R2 bucket ── <warehouse>/ parquet/ tiles/ manifest.json catalog.sql     (pri
 browser ──▶ gate (Cloudflare Worker, Hono)
               ├─ /auth/*          Better Auth: email, magic link, OIDC callbacks   (public)
               ├─ /_obs/login …    sign-in, pending and admin pages
-              ├─ /_obs/edit/…     page-source editor                (phase 5, role: editor)
+              ├─ /_obs/edit/…     the Markdown editor; saves commit to GitHub (phase 4, admins)
               └─ /<site path>/*   access rules → session → R2 _site/<site>/…
 D1 ── users, sessions, accounts (with each user's OIDC groups), verification tokens
 Keycloak ── auth.healthcampaigns.org, one realm per country, as an OIDC provider
@@ -74,7 +74,7 @@ Keycloak ── auth.healthcampaigns.org, one realm per country, as an OIDC prov
 | `packages/gate` | The Worker: sign-in, access rules, serving sites from R2, admin page | doorman (this repo's history) |
 | `packages/cli` | `observatory` command: `new`, `dev`, `pull`, `build`, `deploy` | icr `campaignhq/deploy.sh`, `duckdb-wasm2.sh` |
 | `packages/components` | Framework components: maps, filters, DuckDB helpers, theme | icr `campaignhq/src/components/` |
-| `packages/editor` | The editor in the gate (phase 5) | new |
+| `packages/editor` | The Markdown editor in the gate (phase 4) | new |
 | `packages/cli/template` | Starter site: config, one page, two data loaders | new |
 
 A project that uses Observatory keeps its sites and config in its own repo. It installs
@@ -107,7 +107,7 @@ export default {
     worker: "worker"              // the folder `observatory deploy` runs `wrangler deploy` in
   },
   brand: {title: "Campaign Dashboards", accent: "#0b57d0", logo: null},
-  repo: {github: "recodelabs/icr", branch: "main", root: "dashboards"},   // for "Edit this page"
+  repo: {github: "recodelabs/icr", branch: "main", root: "dashboards"},   // what the editor commits to
 
   warehouses: {
     main: {r2: ""},          // the bucket root
@@ -126,6 +126,7 @@ export default {
     sessionDays: 30,          // email sessions
     oidcSessionHours: 12,     // OIDC sessions: absolute lifetime
     claimsMaxAge: 900,        // seconds before an OIDC session's groups and roles are refreshed
+    admins: [{oidc: "uga", group: "/dashboards-admins"}, {email: "mberg@ona.io"}],  // see "Two levels of access"
     email: {allowedDomains: ["ona.io"], from: "observatory@healthcampaigns.org", adminNotify: "…"},
     oidc: [
       {id: "uga", name: "Uganda (Keycloak)", issuer: "https://auth.healthcampaigns.org/realms/uga"},
@@ -144,7 +145,8 @@ written in the config.
 
 ## The gate
 
-doorman's request flow stays. It changes in four ways.
+doorman's request flow stays. It changes in four ways, and doorman's rule that makes the
+first person to register an active admin is removed (see "Who is an admin").
 
 ### 1. Several sites behind one Worker
 
@@ -212,7 +214,59 @@ doorman's request flow stays. It changes in four ways.
   - `{oidc, group}` and `{oidc, role}`: a user who signed in with that provider and is in
     that group or has that realm role;
   - `{emailDomain}` and `{email}`: email users;
-  - `{role}`: a gate role (`admin`, `editor`).
+  - `{role: "admin"}`: an admin (see below).
+- **Two levels of access: read-only and admin.**
+  - **Read-only** is what a site's `access` grants: the user can see that site's pages and
+    their data, nothing else. Most users have only this.
+  - **Admin** is for the whole host, not per site:
+    - sees every site, whatever its `access`;
+    - uses the admin page (`/_obs/admin`): approves or disables email users, and sees who
+      signed in with Keycloak and which groups gave them access;
+    - edits the dashboards: each page's Markdown source (`sites/<site>/src/*.md`), first
+      in the gate's editor, which commits each save to GitHub (phase 4). Read-only users
+      never see the editor.
+  - **Who is an admin:** anyone who meets one of the conditions in `auth.admins`, checked
+    at every request like site access. An email user can also be made an admin on the
+    admin page (stored in D1). With Keycloak, admins are a group, so they are managed where
+    the other users are:
+
+    ```js
+    auth: {
+      admins: [{oidc: "uga", group: "/dashboards-admins"}, {email: "mberg@ona.io"}],
+      …
+    }
+    ```
+
+    The `{email}` entry is how the first admin gets in before anyone else exists: it
+    matches only a verified email. It replaces doorman's rule that the first person to
+    register becomes an active admin, which is removed. Admin rights from a Keycloak group
+    follow the same refresh as other claims (`claimsMaxAge`), so removing someone from the
+    group ends their admin rights within 15 minutes.
+  - **Admins publish code.** A Framework page is code: its Markdown runs JavaScript and
+    raw HTML in every viewer's browser, with that viewer's session. So editing a page is
+    publishing code, and admin rights are given only to people trusted as much as those
+    with write access to the repo, who can already change any page. A page's code can call
+    the gate's own endpoints as whoever views it, admins included; the editor's checks
+    below stop other sites, not the pages themselves. If a less trusted `editor` level is
+    added later, the editor must move to its own origin and edits must be reviewed before
+    they deploy.
+- **The order of checks**, the same for pages, data files and modules:
+  1. a disabled user is refused everything but signing out;
+  2. a path whose rule is `disabled` is refused to everyone, admins too;
+  3. a public path is allowed;
+  4. a user who isn't active is refused, as if not signed in. That covers an email user
+     still waiting for approval (doorman's approval flow stays). A Keycloak user is active
+     on sign-in, and so is the verified identity that `auth.admins` names;
+  5. an admin is allowed. An admin meets every rule, so a file shared by several pages is
+     allowed too;
+  6. anyone else is checked against the path's rule: the site's `access`, the exceptions,
+     and the manifest below. `"signed-in"` means an active user.
+
+  The same order guards the admin page and the editor, which need step 5. A user is
+  disabled when an admin disables them in D1. That wins over every admin grant, from
+  `auth.admins` or from D1.
+  - **Later, if needed:** per-site admins, and an `editor` level that can edit pages but
+    not manage users. v1 has the two levels only.
 - **Failures:**
   - not signed in → the login page (or 401 for data requests);
   - signed in but not allowed → a 403 page that says which group grants access.
@@ -290,22 +344,61 @@ a Portolan catalog), and Observatory ignores them.
 
 ## Editing a page
 
-- **Phase 4: an "Edit this page" link.**
-  - The CLI adds the link to every page's footer. Framework's footer can be a function
-    of the page path.
-  - The link opens GitHub's editor on `repo.github/repo.root/sites/<site>/src/<page>.md`.
-    Saving opens a commit or pull request.
-  - A GitHub Action then runs `observatory deploy`.
-  - The link shows only to users with the gate role `editor` or `admin`. The gate adds
-    it when it serves the page, so the static build doesn't change.
-- **Phase 5: an editor in the gate.**
-  - `/_obs/edit/<site>/<page>` opens the page's source in CodeMirror, with the page
-    beside it.
-  - Saving commits to a branch and opens a pull request. The gate uses a GitHub App that
-    has rights to that repo.
-  - An Action builds a preview to `_preview/<pr>/`, and the gate serves it at
-    `/_preview/<pr>/…` to editors.
-  - Merging the pull request deploys.
+Admins edit the dashboards in the gate. The first version saves straight to GitHub;
+preview builds and pull requests come later.
+
+- **Phase 4: the editor, committing to GitHub.**
+  - **Where:** `/_obs/edit/` lists each site's pages. `/_obs/edit/<site>/<page>` opens
+    one page's Markdown in CodeMirror, with the live page beside it.
+  - **Which files:** the server builds the list of editable files from the config and
+    GitHub's tree API:
+    - the repository and branch come only from `repo` in the config;
+    - each site's source folder is `repo.root` + `sites[].dir` + Framework's `root`;
+    - a file is listed only if it is an existing regular file (a blob, not a symlink or
+      submodule) ending in `.md` under that folder.
+
+    Requests name a file by site and its path in that list, and anything not on the list
+    is refused, whatever its spelling: `..`, encoded slashes, absolute paths.
+  - **The link in:** on every page an admin sees, the gate adds an "Edit this page" link to
+    the editor. It adds the link when it serves the page, so read-only users never get
+    it and the static build doesn't change.
+  - **Every editor request checks the user.** That covers listing, reading and saving:
+    the gate checks on the server that the user is an admin, with fresh claims and the
+    disabled check. Hiding the link is not the protection.
+  - **Saving** is a `POST`, accepted only with:
+    - an `Origin` header equal to the configured host;
+    - a CSRF token tied to the session. The editor page carries the token; the blob SHA
+      is not a secret.
+
+    The gate then commits the file to `repo.branch` through GitHub's contents API. Each
+    commit is one file:
+    - its message is "Edit <site>/<page>.md", with the admin's own short note if they
+      add one;
+    - its author is the admin's name and email; the committer is the GitHub App.
+  - **Conflicts:** the editor keeps the file's blob SHA from when it was opened. If the
+    file changed on GitHub since then, GitHub refuses the save. The editor then says so
+    and offers to reload, so nobody overwrites someone else's edit.
+  - **What a save doesn't do:** it doesn't change the live site. The new page shows after
+    the next deploy (`observatory deploy`; from CI in phase 5). The editor says this after
+    each save.
+  - **GitHub access:** a GitHub App installed on the repo, with `contents: write` and
+    nothing else, on that repo only. For every read and save, the gate:
+    1. signs a short-lived JWT with the App's private key, a Worker secret;
+    2. exchanges it for an installation access token, asking only for that repository and
+       `contents: write`;
+    3. calls the contents API with that token.
+
+    Neither token leaves the Worker: neither goes in a response or a log.
+  - **Limits (v1):**
+    - Markdown pages only; no data loaders, components or config;
+    - no new or deleted pages;
+    - files over 1 MB are refused.
+- **Phase 5: deploy on commit, then previews.**
+  - A GitHub Action runs `observatory deploy` for the site whose files changed on
+    `repo.branch`, so a save goes live without anyone running the CLI.
+  - Later, if direct commits become too risky, saving can open a pull request instead.
+    An Action would build a preview to `_preview/<pr>/`, served at `/_preview/<pr>/…`
+    to admins, and merging would deploy.
 
 ## Moving the ICR onto Observatory
 
@@ -316,7 +409,8 @@ a Portolan catalog), and Observatory ignores them.
 2. Deploy the gate at dashboards.healthcampaigns.org, replacing the `campaignhq` Worker,
    with these access rules:
    - Nigeria demo pages: public, as today (decided 2026-10-22);
-   - `/ug/`: the `uga` realm's `/dashboards` group, `ona.io` email users, and admins.
+   - `/ug/`: the `uga` realm's `/dashboards` group (read-only), `ona.io` email users,
+     and admins (the `/dashboards-admins` group, and the bootstrap email).
 3. Move doorman's users from its D1 database. It's the same schema, and the migrations
    come along.
 4. Redirect `doorman.healthcampaigns.org` to the canonical host.
@@ -331,8 +425,10 @@ a Portolan catalog), and Observatory ignores them.
    PR #2; the move of `campaignhq` is a PR in recodelabs/icr.)*
 3. **Gate v1:** several sites, Keycloak sign-in, group rules and `/_obs` routes. Then
    cutover (steps 2, 4 and 5). `/ug/` goes behind the `uga` realm.
-4. **CI deploy and the "Edit this page" link.**
-5. **The editor in the gate, with preview builds.**
+4. **The editor:** admins edit a page's Markdown in the gate, and each save commits to
+   GitHub.
+5. **Deploy on commit** (a GitHub Action), then pull requests with preview builds if
+   needed.
 6. **A data endpoint:** the gate serves warehouse tables to allowed users, so pages can
    query current data without a rebuild. It also keeps Keycloak tokens for calls to the
    Info Gateway.
@@ -340,9 +436,14 @@ a Portolan catalog), and Observatory ignores them.
 ## Open questions
 
 - **Keycloak users for `/ug/`.** The `uga` realm is set up (2026-10-22, with
-  `packages/gate/keycloak/oidc-client.sh`): it has a confidential client `observatory` with
-  the gate's callbacks for dashboards.healthcampaigns.org, doorman.healthcampaigns.org and
-  localhost:8787, a `groups` mapper, and the group `/dashboards`. The realm has no human
-  users yet; who should be in `/dashboards`, and who creates their accounts?
+  `packages/gate/keycloak/oidc-client.sh`):
+  - a confidential client `observatory`, with the gate's callbacks for
+    dashboards.healthcampaigns.org, doorman.healthcampaigns.org and localhost:8787;
+  - `groups` and `realm_roles` mappers;
+  - the groups `/dashboards` (read-only) and `/dashboards-admins` (admins).
+
+  The realm has no human users yet. Who goes in each group, and who creates their accounts?
+- **The GitHub App for the editor** (phase 4): created in the recodelabs org and installed
+  on recodelabs/icr only, with `contents: write`.
 - **Mail:** Resend, with a verified `healthcampaigns.org` sender, as doorman uses now.
 - **Route prefix:** `/_obs/…` replaces doorman's `/_door/…`. Old login links redirect.
