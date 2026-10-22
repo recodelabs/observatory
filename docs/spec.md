@@ -281,8 +281,10 @@ a Portolan catalog), and Observatory ignores them.
 
 ## Open questions
 
-- **Keycloak admin access:** someone has to create the `observatory` client and the
-  `/dashboards` group in the `uga` realm. It can be scripted against the admin API, like
-  `tools/hapi/gcp/gateway/api-key.sh`.
+- **Keycloak users for `/ug/`.** The `uga` realm is set up (2026-10-22, with
+  `packages/gate/keycloak/oidc-client.sh`): it has a confidential client `observatory` with
+  the gate's callbacks for dashboards.healthcampaigns.org, doorman.healthcampaigns.org and
+  localhost:8787, a `groups` mapper, and the group `/dashboards`. The realm has no human
+  users yet; who should be in `/dashboards`, and who creates their accounts?
 - **Mail:** Resend, with a verified `healthcampaigns.org` sender, as doorman uses now.
 - **Route prefix:** `/_obs/…` replaces doorman's `/_door/…`. Old login links redirect.
