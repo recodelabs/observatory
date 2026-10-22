@@ -5,7 +5,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 import {precompress} from "./brotli.js";
 import {accessLevel, findConfig, loadConfig, nestedSites, normalize, selectSites, siteFolder, validate, CONFIG_FILE} from "./config.js";
 import {ensureStore, npmCached, patchFramework, patchSiteCache, placeEngine} from "./duckdb2.js";
-import {framework, siteConfig, siteConfigFile, siteRoot} from "./framework.js";
+import {framework, siteConfig, siteConfigFile, siteOutput, siteRoot} from "./framework.js";
 import {checkBucket, pull as pullWarehouse, upload, warehouseCache} from "./r2.js";
 import {run, serve} from "./run.js";
 
@@ -34,6 +34,18 @@ function siteEnv(data) {
   const env = {...process.env, DUCKDB_AGENT_MODE: "0"};
   if (data) env.DATA = data;
   return env;
+}
+
+/**
+ * Remove the data loaders' cached outputs from the site's Framework cache, wherever the loaders
+ * are. Framework's own caches start with "_" (_npm, _node, _jsr, _observablehq) and are kept.
+ */
+export function clearLoaderCache(root) {
+  const cache = join(root, ".observablehq", "cache");
+  if (!existsSync(cache)) return;
+  for (const e of readdirSync(cache)) {
+    if (!e.startsWith("_")) rmSync(join(cache, e), {recursive: true, force: true});
+  }
 }
 
 /** Whether any page or module of the site uses DuckDB (sql front matter or blocks, DuckDBClient). */
@@ -115,12 +127,12 @@ export async function build(names, opts) {
     const data = dataFor(config, site, {local: opts.local, pull: !opts.local});
     const env = siteEnv(data);
     // Framework reuses a loader's cached output until the loader file changes, so new data in the
-    // warehouse would not show: drop the cached outputs (not the npm cache).
-    rmSync(join(await siteRoot(site.dir), ".observablehq", "cache", "data"), {recursive: true, force: true});
+    // warehouse would not show: drop the cached outputs.
+    clearLoaderCache(await siteRoot(site.dir));
     const {fw} = await duckdb2(site, env);
     console.error(`== build ${site.name}${data ? ` from ${data}` : ""}`);
     run(process.execPath, [fw.bin, "build"], {cwd: site.dir, env});
-    await precompress(join(site.dir, "dist"));
+    await precompress(await siteOutput(site.dir));
   }
   return {config, sites};
 }
@@ -134,11 +146,13 @@ export async function deploy(names, opts) {
     ({config, sites} = await build(names, opts));
   }
   checkBucket(config);
+  const outputs = new Map();
   for (const site of sites) {
-    const dist = join(site.dir, "dist");
+    const dist = await siteOutput(site.dir);
     if (!existsSync(join(dist, "index.html"))) throw new Error(`${site.name}: no build in ${dist}`);
+    outputs.set(site, dist);
   }
-  for (const site of sites) upload(config, site, join(site.dir, "dist"), {dryRun: opts.dryRun, prune: opts.prune});
+  for (const site of sites) upload(config, site, outputs.get(site), {dryRun: opts.dryRun, prune: opts.prune});
   // The host goes last, so a wrangler failure never leaves a site un-uploaded.
   if (config.cloudflare.worker && !opts.dryRun && opts.worker !== false) {
     console.error(`== deploy ${relative(config.root, config.cloudflare.worker) || "."} (wrangler)`);

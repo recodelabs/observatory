@@ -1,9 +1,25 @@
 import assert from "node:assert/strict";
-import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from "node:fs";
+import {mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {test} from "node:test";
-import {usesDuckDB} from "../src/commands.js";
+import {clearLoaderCache, usesDuckDB} from "../src/commands.js";
+
+test("clearLoaderCache drops every loader output and keeps Framework's own caches", () => {
+  const root = mkdtempSync(join(tmpdir(), "obs-src-"));
+  const cache = join(root, ".observablehq", "cache");
+  try {
+    for (const p of ["_npm/htl@1.0.0/_esm.js", "_node/x.js", "data/a.parquet", "metrics.parquet", "pages/b.csv"]) {
+      mkdirSync(join(cache, p, ".."), {recursive: true});
+      writeFileSync(join(cache, p), "x");
+    }
+    clearLoaderCache(root);
+    assert.deepEqual(readdirSync(cache).sort(), ["_node", "_npm"]);
+    clearLoaderCache(join(root, "missing"));
+  } finally {
+    rmSync(root, {recursive: true, force: true});
+  }
+});
 
 test("usesDuckDB finds sql front matter, sql blocks and DuckDBClient, and skips the cache", () => {
   const root = mkdtempSync(join(tmpdir(), "obs-src-"));

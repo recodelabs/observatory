@@ -1,5 +1,5 @@
 // The bucket, through rclone: pull warehouses into the cache, upload site builds.
-import {existsSync, mkdirSync} from "node:fs";
+import {existsSync, mkdirSync, rmSync} from "node:fs";
 import {homedir} from "node:os";
 import {join} from "node:path";
 import {nestedSites, siteFolder} from "./config.js";
@@ -25,14 +25,19 @@ export function checkBucket(config) {
   if (!buckets.includes(bucket)) throw new Error(`bucket ${bucket} not found on rclone remote ${rclone}:`);
 }
 
-/** Where a warehouse is cached. */
+/**
+ * Where a warehouse is cached: by rclone remote, bucket and folder. The bucket root is "@root",
+ * which no folder name can be (see FOLDER in config.js).
+ */
 export function warehouseCache(config, warehouse) {
-  return join(cacheDir(), "warehouses", config.cloudflare.bucket, warehouse.r2 === "" ? "_root" : warehouse.r2.replace(/\/$/, ""));
+  const {rclone, bucket} = config.cloudflare;
+  return join(cacheDir(), "warehouses", rclone, bucket, warehouse.r2 === "" ? "@root" : warehouse.r2.replace(/\/$/, ""));
 }
 
 /**
  * Copy a warehouse from the bucket into the cache and return its path: parquet/ and tiles/
- * (mirrored), manifest.json and catalog.sql (when there). Nothing else in its folder is read.
+ * (mirrored), manifest.json and catalog.sql. Any of these the bucket no longer has is removed
+ * from the cache. Nothing else in the warehouse folder is read.
  */
 export function pull(config, warehouse) {
   const dest = warehouseCache(config, warehouse);
@@ -43,25 +48,26 @@ export function pull(config, warehouse) {
   mkdirSync(dest, {recursive: true});
   for (const d of ["parquet", "tiles"]) {
     if (listing.has(`${d}/`)) run("rclone", ["sync", ...COPY, `${src}${d}`, join(dest, d)], {quiet: true});
+    else rmSync(join(dest, d), {recursive: true, force: true});
   }
   for (const f of ["manifest.json", "catalog.sql"]) {
     if (listing.has(f)) run("rclone", ["copyto", "--checksum", `${src}${f}`, join(dest, f)], {quiet: true});
+    else rmSync(join(dest, f), {force: true});
   }
   return dest;
 }
 
 /**
- * Folders under the site's bucket folder that hold a page (index.html) but are neither in the
- * new build nor another site: a sync would delete them. Returns their names ("dhis2-sl/").
+ * Folders under the site's bucket folder whose index.html the new build doesn't have and that no
+ * other site owns: a sync would delete them, and they may be a site missing from the config.
+ * Returns the folders ("dhis2-sl/", "reports/legacy/").
  */
 export function strays(remoteIndexes, distHas, nested) {
   const found = new Set();
   for (const key of remoteIndexes) {
-    const slash = key.indexOf("/");
-    if (slash < 0) continue;                       // the site's own index.html
-    const top = key.slice(0, slash + 1);
+    if (!key.endsWith("/index.html")) continue;     // the site's own index.html
     if (nested.some((n) => key.startsWith(n))) continue;
-    if (!distHas(top)) found.add(top);
+    if (!distHas(key)) found.add(key.slice(0, -"index.html".length));
   }
   return [...found].sort();
 }
@@ -76,9 +82,9 @@ export function upload(config, site, dist, {dryRun = false, prune = false} = {})
   const nested = nestedSites(config, site);
   if (!prune) {
     const indexes = output("rclone", ["lsf", "-R", "--files-only", "--include", "**/index.html", dest]).split("\n").filter(Boolean);
-    const found = strays(indexes, (top) => existsSync(join(dist, top)), nested);
+    const found = strays(indexes, (key) => existsSync(join(dist, key)), nested);
     if (found.length) {
-      throw new Error(`${dest} has pages in ${found.join(", ")} that this build doesn't have and no site in the config owns; `
+      throw new Error(`${dest} has index pages in ${found.join(", ")} that this build doesn't have and no site in the config owns; `
         + "uploading would delete them. Add those sites to the config, or pass --prune to delete them.");
     }
   }

@@ -26,7 +26,8 @@ class BufferSource {
 
 const protocol = new Protocol();
 maplibregl.addProtocol("pmtiles", protocol.tile);
-const keys = new WeakMap();
+// One archive per buffer, so maps that share a buffer share its tiles.
+const archives = new WeakMap();
 let nextKey = 0;
 
 export const OSM = {tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], attribution: "© OpenStreetMap contributors"};
@@ -41,16 +42,14 @@ export function adminMap({
   const L = {...LAYERS, ...layers};
   const container = document.createElement("div");
   container.style.cssText = `width:100%;height:${height}px;border-radius:8px;overflow:hidden;position:relative;background:#f8fafc`;
-  let key = keys.get(pmtiles);
-  let archive;
-  if (key === undefined) {
-    key = `obs-admin-${nextKey++}`;
-    archive = new PMTiles(new BufferSource(pmtiles, key));
-    protocol.add(archive);
-    keys.set(pmtiles, key);
-  } else {
-    archive = protocol.get(`pmtiles://${key}`);
+  let entry = archives.get(pmtiles);
+  if (!entry) {
+    const key = `obs-admin-${nextKey++}`;
+    entry = {key, archive: new PMTiles(new BufferSource(pmtiles, key))};
+    protocol.add(entry.archive);
+    archives.set(pmtiles, entry);
   }
+  const {key, archive} = entry;
 
   const sources = {
     admin: {type: "vector", url: `pmtiles://${key}`, promoteId: {[L.units]: "id", [L.regions]: "id"}},

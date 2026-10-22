@@ -60,8 +60,10 @@ export default {
   path: `/ug/` goes to `_site/main/ug/`.
 - **Nested sites are separate.** Uploading the site at `/` leaves the folders of the sites
   under it alone.
-- **Unknown folders stop an upload.** If the bucket folder holds pages in a folder that is
-  neither in the new build nor a configured site, the upload stops. `--prune` deletes them.
+- **Unknown folders stop an upload.** An upload would delete any folder whose
+  `index.html` is not in the new build. If such a folder belongs to no configured site,
+  the upload stops; `--prune` deletes it anyway. This catches a site missing from the
+  config, at any depth.
 - **`access`** is read by the gate (phase 3). A site without it needs sign-in.
   `observatory check` lists each site's level.
 
@@ -93,8 +95,13 @@ duckdb -c "COPY (
 ```
 
 Framework reuses a loader's output until the loader file changes. `build` and `deploy`
-clear those outputs, so every build reads the warehouse again. `dev` doesn't. To see new
-data in a running preview, delete `src/.observablehq/cache/data`.
+clear every loader output in the site's cache (all but Framework's own `_`-prefixed
+folders), so every build reads the warehouse again. `dev` doesn't. To see new data in a
+running preview, delete the loader's output under `src/.observablehq/cache/`.
+
+`pull` mirrors the warehouse into `~/.cache/observatory/warehouses/<remote>/<bucket>/<folder>`.
+The bucket root is `@root`. Files the bucket no longer has are removed from the cache.
+The build output folder is Framework's `output`, `dist` by default.
 
 ## DuckDB 2.0
 

@@ -23,6 +23,11 @@ export async function siteRoot(dir) {
   return resolve(dir, (await siteConfig(dir)).root ?? "src");
 }
 
+/** The folder the site builds to (Framework's `output`, default dist). */
+export async function siteOutput(dir) {
+  return resolve(dir, (await siteConfig(dir)).output ?? "dist");
+}
+
 /** The Framework installed for a site: the nearest node_modules/@observablehq/framework above it. */
 export function framework(dir) {
   for (let d = resolve(dir); ; d = dirname(d)) {
