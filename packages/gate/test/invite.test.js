@@ -136,6 +136,19 @@ describe("invitations", () => {
     expect((await row("known@elsewhere.test")).status).toBe("active");
     expect((await get("/ug/", {...NAV, cookie})).status).toBe(200);
   });
+  it("doesn't re-enable a disabled account, confirmed or not", async () => {
+    for (const [email, confirmed] of [["off1@elsewhere.test", false], ["off2@elsewhere.test", true]]) {
+      await signUp(email);
+      if (confirmed) await verify(email);
+      await env.DB.prepare("update user set status = 'disabled' where email = ?").bind(email).run();
+      const {id} = await row(email);
+      const res = await post("/_obs/admin/invite", form({email, site: "ug", admin: "1"}), {cookie: adminCookie});
+      expect(res.headers.get("location")).toBe("/_obs/admin?ok=disabled");
+      const after = await row(email);
+      expect(after).toMatchObject({id, status: "disabled", role: "user"});
+      expect(await grants(email)).toEqual([]);
+    }
+  });
   it("can invite an admin", async () => {
     await post("/_obs/admin/invite", form({email: "boss@elsewhere.test", admin: "1"}), {cookie: adminCookie});
     expect((await row("boss@elsewhere.test")).role).toBe("admin");

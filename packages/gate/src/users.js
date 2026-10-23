@@ -87,9 +87,9 @@ export async function addSites(d1, userId, sites, by) {
  * insert fails on the foreign key, so it can't land on the new account. The new account can only
  * be signed into with an emailed link, which confirms the address.
  */
-// Every delete is conditional on the old account still being unconfirmed, so one confirmed in the
-// meantime is left whole.
-const UNCONFIRMED = `EXISTS (SELECT 1 FROM "user" WHERE "id" = ? AND "emailVerified" = 0)`;
+// Every delete is conditional on the old account still being unconfirmed and not disabled, so
+// one confirmed or disabled in the meantime is left whole (a disabled user stays disabled).
+const UNCONFIRMED = `EXISTS (SELECT 1 FROM "user" WHERE "id" = ? AND "emailVerified" = 0 AND "status" != 'disabled')`;
 
 export async function replaceUnconfirmed(d1, old, {name, role}) {
   const id = crypto.randomUUID().replaceAll("-", "");
@@ -99,8 +99,9 @@ export async function replaceUnconfirmed(d1, old, {name, role}) {
     d1.prepare(`DELETE FROM "session" WHERE "userId" = ? AND ${UNCONFIRMED}`).bind(old.id, old.id),
     d1.prepare(`DELETE FROM "account" WHERE "userId" = ? AND ${UNCONFIRMED}`).bind(old.id, old.id),
     d1.prepare(`DELETE FROM "oidcClaims" WHERE "userId" = ? AND ${UNCONFIRMED}`).bind(old.id, old.id),
-    d1.prepare(`DELETE FROM "user" WHERE "id" = ? AND "emailVerified" = 0`).bind(old.id),
-    // Only if the delete happened: if the address was confirmed in the meantime, nothing changes.
+    d1.prepare(`DELETE FROM "user" WHERE "id" = ? AND "emailVerified" = 0 AND "status" != 'disabled'`).bind(old.id),
+    // Only if the delete happened: if the address was confirmed, or the account disabled, in the
+    // meantime, nothing changes.
     d1.prepare(`INSERT INTO "user" ("id", "email", "name", "emailVerified", "createdAt", "updatedAt", "role", "status")
       SELECT ?, ?, ?, 0, ?, ?, ?, 'active' WHERE NOT EXISTS (SELECT 1 FROM "user" WHERE "email" = ?)`)
       .bind(id, old.email, name || old.email, now, now, role, old.email)

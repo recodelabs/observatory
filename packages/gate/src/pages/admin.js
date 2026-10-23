@@ -33,7 +33,7 @@ function chosenSites(config, form) {
   return grantable(config).map((s) => s.name).filter((n) => ticked.includes(n));
 }
 
-const MESSAGES = {done: "Done.", invited: "Invitation sent.", "invited-nomail": "The account is ready, but the invitation email could not be sent. Ask them to sign in with an email link from the sign-in page."};
+const MESSAGES = {done: "Done.", disabled: "That account is disabled. Enable it first, then invite them again.", invited: "Invitation sent.", "invited-nomail": "The account is ready, but the invitation email could not be sent. Ask them to sign in with an email link from the sign-in page."};
 
 admin.get("/admin", async (c) => {
   const config = c.get("config");
@@ -94,6 +94,9 @@ admin.post("/admin/invite", async (c) => {
   if (!user) {
     await createInvitedUser(db, {email, name, role: makeAdmin ? "admin" : "user"});
     user = await getUserByEmail(db, email);
+  } else if (user.status === "disabled") {
+    // Disabled wins over everything, invitations too: an admin enables the account on purpose.
+    return c.redirect("/_obs/admin?ok=disabled", 302);
   } else {
     // Someone may have signed up with this address without owning it: an account whose address
     // isn't confirmed is replaced by a new invited one before it gets anything (users.js), so only
