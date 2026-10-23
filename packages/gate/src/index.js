@@ -106,7 +106,7 @@ export function createApp(rawConfig) {
       }
     }
     const user = who?.user ?? null;
-    const d = decide(config, rule, who);
+    const d = decide(config, rule, who, site);
     switch (d.kind) {
       case "notfound":
         return notFound(c.env.SITE, notFoundKey ? config.sitesFolder + notFoundKey : null, request);
@@ -119,7 +119,7 @@ export function createApp(rawConfig) {
         const body = d.reason === "disabled"
           ? "<p>Your account has been disabled. Contact an administrator if you think this is a mistake.</p>"
           : `<p>You're signed in as <strong>${escape(user.email)}</strong>, but these dashboards are open only to:</p>
-<ul>${describeRule(rule).map((w) => `<li>${escape(w)}</li>`).join("")}<li>admins</li></ul>
+<ul>${describeRule(rule).map((w) => `<li>${escape(w)}</li>`).join("")}<li>people an admin has added to this site</li><li>admins</li></ul>
 <p>Ask an administrator for access, or sign in with another account.</p>`;
         return html(c, page({config, title: "No access", body: body + `<form method="post" action="/_obs/signout"><button type="submit" class="quiet">Sign out</button></form>`}), 403);
       }
