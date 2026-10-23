@@ -1,13 +1,15 @@
 // The observatory commands.
 import {cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync} from "node:fs";
+import {createServer} from "node:net";
 import {dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {precompress} from "./brotli.js";
+import {startEditor} from "./editor.js";
 import {accessLevel, findConfig, loadConfig, nestedSites, normalize, selectSites, siteFolder, validate, CONFIG_FILE} from "./config.js";
 import {ensureStore, npmCached, patchFramework, patchSiteCache, placeEngine} from "./duckdb2.js";
 import {framework, siteConfig, siteConfigFile, siteOutput, siteRoot} from "./framework.js";
 import {checkBucket, pull as pullWarehouse, upload, warehouseCache} from "./r2.js";
-import {output, run, serve} from "./run.js";
+import {output, run, serve, spawnDetached} from "./run.js";
 
 const TEMPLATE = join(dirname(fileURLToPath(import.meta.url)), "..", "template");
 
@@ -135,8 +137,52 @@ export async function dev([name, ...rest], opts) {
   const env = siteEnv(data);
   const {fw} = await duckdb2(site, env);
   if (data) console.error(`== ${site.name}: data from ${data}`);
-  const code = await serve(process.execPath, [fw.bin, "preview", ...rest], {cwd: site.dir, env});
-  process.exitCode = code;
+  if (opts.noEdit) {
+    process.exitCode = await serve(process.execPath, [fw.bin, "preview", ...rest], {cwd: site.dir, env});
+    return;
+  }
+  // The editor beside the preview: the preview on a port we know (the one asked for, or a free
+  // one from 3000), the editor on the next free one; the browser opens the editor.
+  const asked = rest.indexOf("--port");
+  const previewPort = asked >= 0 ? Number(rest[asked + 1]) : await freePort(3000);
+  const editorPort = await freePort(previewPort + 1);
+  const host = rest.includes("--host") ? rest[rest.indexOf("--host") + 1] : "127.0.0.1";
+  const previewUrl = `http://${host === "0.0.0.0" ? "127.0.0.1" : host}:${previewPort}/`;
+  const args = [fw.bin, "preview", ...rest, ...(asked >= 0 ? [] : ["--port", String(previewPort)])];
+  const wantsOpen = !rest.includes("--no-open");
+  if (wantsOpen) args.push("--no-open");
+  const editor = await startEditor({name: site.name, root: await siteRoot(site.dir), previewUrl, port: editorPort});
+  const editorUrl = `http://127.0.0.1:${editorPort}/`;
+  console.error(`== ${site.name}: edit at ${editorUrl} (the preview is ${previewUrl})`);
+  if (wantsOpen) openBrowser(editorUrl);
+  try {
+    process.exitCode = await serve(process.execPath, args, {cwd: site.dir, env});
+  } finally {
+    editor.close();
+  }
+}
+
+/**
+ * The first port from `start` that nothing is listening on. Each address is tried: a server on
+ * all addresses (or on IPv6) doesn't stop another binding 127.0.0.1 alone on macOS, and the two
+ * would then answer for the same URL.
+ */
+export async function freePort(start) {
+  const bind = (port, host) => new Promise((done) => {
+    const s = createServer().once("error", (e) => done(e.code === "EADDRNOTAVAIL" || e.code === "EAFNOSUPPORT"))
+      .listen(port, host, () => s.close(() => done(true)));
+  });
+  for (let port = start; port < start + 100; port++) {
+    let free = true;
+    for (const host of ["127.0.0.1", "0.0.0.0", "::1", "::"]) if (!(free = await bind(port, host))) break;
+    if (free) return port;
+  }
+  throw new Error(`no free port from ${start}`);
+}
+
+function openBrowser(url) {
+  const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
+  try { spawnDetached(cmd, [url]); } catch { /* no browser: the URL is printed */ }
 }
 
 export async function pull(names) {
