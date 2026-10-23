@@ -32,6 +32,13 @@ public page, so those pages load for anonymous visitors. It holds no project cod
 The site's own modules (`_import/…`), data (`_file/…`) and search index
 (`_observablehq/minisearch.json`) follow the site's rule.
 
+## The gate's own pages
+
+The sign-in, sign-up and Settings pages use the look of Framework's light theme (grey page,
+white cards, Source Serif 4 headings, Framework's table style), so they match the dashboards.
+`brand.title` is the heading on every page; `brand.accent` changes the link colour (Framework's
+blue when unset) and `brand.logo` adds an image above the title.
+
 ## The account panel
 
 On every dashboard page a signed-in user opens, the gate adds a small panel with:

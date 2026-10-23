@@ -100,6 +100,20 @@ describe("invitations", () => {
     await post("/_obs/admin/sites", form({userId: id, site: "ug"}), {cookie: adminCookie});
     expect((await get("/ug/", {...NAV, cookie})).status).toBe(200);
   });
+  it("the users table has a well-formed checkbox per site, saved in the background as form data", async () => {
+    const {id} = await row("guest@elsewhere.test");
+    const html = await (await get("/_obs/admin", {...NAV, cookie: adminCookie})).text();
+    expect(html).toMatch(/<input type="checkbox" name="site" value="ug" checked> ug<\/label>/);
+    // The page's script posts the row's form with fetch and FormData (multipart), not urlencoded.
+    const body = new FormData();
+    body.append("userId", id);
+    body.append("csrf", csrf);
+    const res = await app.fetch(new Request("http://example.com/_obs/admin/sites", {method: "POST", body,
+      headers: {cookie: adminCookie, origin: "http://example.com", "cf-connecting-ip": "10.9.9.9"}}), env);
+    expect(res.status).toBe(302);
+    expect(await grants("guest@elsewhere.test")).toEqual([]);
+    await post("/_obs/admin/sites", form({userId: id, site: "ug"}), {cookie: adminCookie});
+  });
   it("a grant doesn't let in a disabled user", async () => {
     const cookie = await signInByLink("guest@elsewhere.test");
     await env.DB.prepare("update user set status = 'disabled' where email = ?").bind("guest@elsewhere.test").run();

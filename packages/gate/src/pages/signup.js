@@ -5,15 +5,16 @@ import {page, html, escape, withCookies} from "./layout.js";
 export const signup = new Hono();
 
 function signupForm({config, email = "", name = "", error}) {
-  const body = `
+  const body = `<div class="card">
 <form method="post" action="/_obs/signup">
-  <label for="name">Name</label><input id="name" type="text" name="name" value="${escape(name)}" required>
-  <label for="email">Email</label><input id="email" type="email" name="email" value="${escape(email)}" required>
-  <label for="password">Password <span class="muted">(10+ characters)</span></label><input id="password" type="password" name="password" minlength="10" required>
-  <button type="submit">Create account</button>
+  <label for="name">Name</label><input id="name" type="text" name="name" value="${escape(name)}" autocomplete="name" required>
+  <label for="email">Email</label><input id="email" type="email" name="email" value="${escape(email)}" autocomplete="email" required>
+  <label for="password">Password <span class="muted">(10+ characters)</span></label><input id="password" type="password" name="password" minlength="10" autocomplete="new-password" required>
+  <div class="actions"><button type="submit" class="primary full">Create account</button></div>
 </form>
 <p class="muted">You'll get an email to confirm your address. Unless your address is one this site accepts, an administrator also approves the account before you can see anything.</p>
-<p class="muted"><a href="/_obs/login">Back to sign in</a></p>`;
+</div>
+<p class="note">Have an account? <a href="/_obs/login">Sign in</a></p>`;
   return page({config, title: "Sign up", body, error});
 }
 

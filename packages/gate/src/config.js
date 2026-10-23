@@ -81,7 +81,7 @@ export function loadConfig(raw) {
     sites,
     exceptions,
     sitesFolder,
-    brand: {title: raw.brand?.title ?? "Dashboards", accent: raw.brand?.accent ?? "#0b57d0", logo: raw.brand?.logo ?? null},
+    brand: {title: raw.brand?.title ?? "Dashboards", accent: raw.brand?.accent ?? null, logo: raw.brand?.logo ?? null},
     auth: {
       sessionDays: auth.sessionDays ?? 30,
       allowedDomains: (auth.email?.allowedDomains ?? []).map((d) => d.toLowerCase()),
