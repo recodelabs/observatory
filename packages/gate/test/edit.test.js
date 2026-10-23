@@ -75,10 +75,12 @@ beforeAll(async () => {
       return entries.size ? json([...entries.values()]) : json({message: "Not Found"}, 404);
     }
     if (url.pathname.startsWith(`${repo}/git/trees/`)) {
-      const folder = decodeURIComponent(url.pathname.slice(`${repo}/git/trees/tree:`.length));
+      // A folder's tree by its fake SHA, or the whole repo's by the branch name.
+      const ref = decodeURIComponent(url.pathname.slice(`${repo}/git/trees/`.length));
+      const folder = ref === "main" ? "" : ref.slice("tree:".length);
       const tree = [];
       for (const [p, text] of github.files) {
-        if (p.startsWith(folder + "/")) tree.push({path: p.slice(folder.length + 1), type: "blob", mode: "100644", sha: await sha1(text), size: text.length});
+        if (!folder || p.startsWith(folder + "/")) tree.push({path: folder ? p.slice(folder.length + 1) : p, type: "blob", mode: "100644", sha: await sha1(text), size: text.length});
       }
       // A symlink and a submodule that end in .md: never editable.
       tree.push({path: "link.md", type: "blob", mode: "120000", sha: "1".repeat(40), size: 10});
@@ -176,6 +178,31 @@ describe("the editor", () => {
     expect(res.headers.get("location")).toBe("/_obs/edit/ug/coverage?ok=unchanged");
     expect(github.requests.some((r) => r.method === "PUT")).toBe(false);
   });
+  it("keeps the draft and the note when a save fails, and still warns before leaving", async () => {
+    const sha = await shaOf(await (await page("/_obs/edit/ug/coverage", admin)).text());
+    github.down = true;
+    const res = await save("/_obs/edit/ug/coverage", {text: "# Draft <b>\r\n", sha, note: "my note", csrf: adminCsrf});
+    expect(res.status).toBe(502);
+    const html = await res.text();
+    expect(html).toContain("Your edit wasn&#39;t saved.");
+    expect(html).toContain("\n# Draft &lt;b&gt;\n</textarea>");
+    expect(html).toContain('value="my note"');
+    expect(html).toContain(`name="sha" value="${sha}"`);
+    expect(html).toMatch(/id="editor" data-dirty>/);
+    expect(await (await page("/_obs/edit/ug/coverage", admin)).text()).not.toContain("data-dirty");
+  });
+  it("lists and saves Markdown at the top of the repo", async () => {
+    const top = createApp({...EDIT_CONFIG, repo: {...EDIT_CONFIG.repo, root: ""},
+      sites: CONFIG.sites.map((s) => s.name === "ug" ? {...s, dir: "", root: ""} : s)});
+    const get = async (path) => (await top.fetch(new Request("http://example.com" + path, {headers: {...NAV, cookie: admin}}), ENV)).text();
+    expect(await get("/_obs/edit/")).toContain(`href="/_obs/edit/ug/${FOLDER.split("/").map(encodeURIComponent).join("/")}/coverage"`);
+    const sha = await shaOf(await get(`/_obs/edit/ug/${FOLDER}/coverage`));
+    const res = await top.fetch(new Request(`http://example.com/_obs/edit/ug/${FOLDER}/coverage`, {method: "POST",
+      headers: {"content-type": "application/x-www-form-urlencoded", origin: "http://example.com", cookie: admin},
+      body: new URLSearchParams({text: "# Top\n", sha, csrf: adminCsrf}).toString()}), ENV);
+    expect(res.status).toBe(302);
+    expect(github.requests.find((r) => r.method === "PUT").path).toBe(`/repos/recodelabs/icr/contents/${FOLDER}/coverage.md`);
+  });
   it("refuses a save from another origin or without the session's token", async () => {
     const sha = await sha1("# Coverage\n");
     expect((await save("/_obs/edit/ug/coverage", {text: "x", sha, csrf: adminCsrf}, {origin: "https://evil.example"})).status).toBe(403);
@@ -192,13 +219,16 @@ describe("the editor", () => {
     expect(html).toContain("Someone changed this file on GitHub since you opened it");
     expect(html).toContain("\n# Mine\n</textarea>");
     expect(html).toContain(`name="sha" value="${sha}"`);
+    expect(html).toMatch(/id="editor" data-dirty>/);
     expect(github.files.get(`${FOLDER}/coverage.md`)).toBe("# Coverage\n\nSomeone else's edit.\n");
   });
   it("says what's wrong when GitHub fails or the key is missing, without showing a token", async () => {
     github.down = true;
     let res = await page("/_obs/edit/ug/coverage", admin);
-    expect(res.status).toBe(503);
-    expect(await res.text()).not.toContain("ghs_");
+    expect(res.status).toBe(502);
+    const html = await res.text();
+    expect(html).toContain("GitHub isn&#39;t responding");
+    expect(html).not.toContain("ghs_");
     github.down = false;
     const noKey = createApp(EDIT_CONFIG);
     res = await noKey.fetch(new Request("http://example.com/_obs/edit/ug/coverage", {headers: {...NAV, cookie: admin}}), {...ENV, GITHUB_APP_PRIVATE_KEY: undefined});

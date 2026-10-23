@@ -65,33 +65,38 @@ edit.get("/edit/", async (c) => {
   }
 });
 
-/** The site and the listed file a request names, or null. Throws GitHubError. */
-async function lookup(c, gh) {
-  const config = c.get("config");
-  const site = editable(config).find((s) => s.name === c.req.param("site"));
+/** The site and the file name a request names, before checking the list, or null. */
+function requested(c) {
+  const site = editable(c.get("config")).find((s) => s.name === c.req.param("site"));
   if (!site) return null;
   // The rest of the path, as the browser sent it: matched against the listed names only, so
   // "..", encoded slashes and the like name nothing.
   const rest = new URL(c.req.url).pathname.slice(`/_obs/edit/${encodeURIComponent(site.name)}/`.length);
   if (/%2f|%5c/i.test(rest)) return null;
-  let name;
   try {
-    name = rest.split("/").map(decodeURIComponent).join("/") + ".md";
+    return {site, name: rest.split("/").map(decodeURIComponent).join("/") + ".md"};
   } catch {
     return null;
   }
-  const folder = folderOf(config, site);
-  const file = (await gh.markdownFiles(folder)).find((f) => f.path === name);
-  return file ? {site, file, path: `${folder}/${file.path}`} : null;
 }
 
-function editorPage(c, {site, file, text, sha, message, error, status = 200}) {
+/** The site and the listed file a request names, or null. Throws GitHubError. */
+async function lookup(c, gh) {
+  const want = requested(c);
+  if (!want) return null;
+  const folder = folderOf(c.get("config"), want.site);
+  const file = (await gh.markdownFiles(folder)).find((f) => f.path === want.name);
+  return file ? {site: want.site, file, path: [folder, file.path].filter(Boolean).join("/")} : null;
+}
+
+function editorPage(c, {site, file, text, sha, note = "", dirty = false, message, error, status = 200}) {
   const config = c.get("config");
   return csrfToken(c.env.BETTER_AUTH_SECRET, c.get("session").session.token).then((csrf) => {
     const action = editUrl(site, file.path);
     // A textarea drops one newline straight after its start tag, so one goes in to keep a
     // file's own leading newline.
-    const body = `<form method="post" action="${escape(action)}" class="editor" id="editor">
+    // dirty: the text in the box is a save that failed, so leaving still asks first.
+    const body = `<form method="post" action="${escape(action)}" class="editor" id="editor"${dirty ? " data-dirty" : ""}>
 <input type="hidden" name="csrf" value="${csrf}"><input type="hidden" name="sha" value="${escape(sha)}">
 <div class="edit-grid">
   <textarea name="text" id="text" spellcheck="false" aria-label="Markdown of ${escape(site.name)}/${escape(file.path)}">
@@ -99,7 +104,7 @@ ${escape(text)}</textarea>
   <iframe src="${escape(viewUrl(site, file.path))}" title="The live page"></iframe>
 </div>
 <div class="actions">
-  <input type="text" name="note" maxlength="200" placeholder="What changed (optional)" aria-label="What changed (optional)">
+  <input type="text" name="note" maxlength="200" value="${escape(note)}" placeholder="What changed (optional)" aria-label="What changed (optional)">
   <button type="submit" class="primary">Save to GitHub</button>
 </div>
 <p class="note">Saving commits this file to ${escape(repoLabel(config.repo))}. The live page, on the right, changes at the next deploy.
@@ -115,7 +120,7 @@ ${escape(text)}</textarea>
 // first.
 const EDITOR_SCRIPT = `
 const form = document.getElementById("editor"), text = document.getElementById("text");
-const saved = text.value;
+const saved = "dirty" in form.dataset ? null : text.value;
 let submitting = false;
 text.addEventListener("keydown", (e) => {
   if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -175,12 +180,16 @@ edit.post("/edit/:site/:page{.+}", async (c) => {
       author: {name: s.user.name || s.user.email, email: s.user.email}});
     return c.redirect(`${here}?ok=saved&commit=${commit}`, 302);
   } catch (err) {
-    // Keep what they typed, against the version they opened, so saving again fails the same
-    // way until they reload the version on GitHub.
-    if (err instanceof Conflict && found) {
-      return editorPage(c, {...found, text, sha: form.sha, status: 409,
-        error: "Someone changed this file on GitHub since you opened it, so your edit wasn't saved. Copy your changes, then reload the page to get the latest version."});
-    }
-    return failure(c, config, err);
+    if (!(err instanceof GitHubError)) throw err;
+    // Keep what they typed, the note and the version they opened, so nothing is lost: after a
+    // conflict, saving again fails the same way until they reload the version on GitHub; after
+    // any other failure they can try again.
+    const want = found ?? requested(c);
+    if (!want) return failure(c, config, err);
+    const file = found ? found.file : {path: want.name};
+    return editorPage(c, {site: want.site, file, text, sha: form.sha, note, dirty: true, status: err.status,
+      error: err instanceof Conflict
+        ? "Someone changed this file on GitHub since you opened it, so your edit wasn't saved. Copy your changes, then reload the page to get the latest version."
+        : `Your edit wasn't saved. ${err.message}`});
   }
 });

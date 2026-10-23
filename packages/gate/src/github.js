@@ -106,10 +106,12 @@ export async function connect(repo, env) {
   const jwt = await appJwt(repo.app, env.GITHUB_APP_PRIVATE_KEY);
   const where = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
   const inst = await call(`${where}/installation`, {token: jwt});
+  if (inst.status >= 500) throw new GitHubError("GitHub isn't responding. Try again in a minute.");
   if (inst.status === 401) throw new GitHubError("GitHub didn't accept the App's key. Check repo.app and GITHUB_APP_PRIVATE_KEY.", 503);
   if (!inst.ok) throw new GitHubError(`The GitHub App isn't installed on ${repo.owner}/${repo.name}.`, 503);
   const tok = await call(`/app/installations/${inst.data.id}/access_tokens`, {token: jwt, method: "POST",
     body: {repositories: [repo.name], permissions: {contents: "write"}}});
+  if (tok.status >= 500) throw new GitHubError("GitHub isn't responding. Try again in a minute.");
   if (!tok.ok || !tok.data?.token) throw new GitHubError(`GitHub wouldn't give the App write access to ${repo.owner}/${repo.name}.`, 503);
   const token = tok.data.token;
 
@@ -120,17 +122,23 @@ export async function connect(repo, env) {
      * folder doesn't exist.
      */
     async markdownFiles(folder) {
-      const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
-      const name = folder.slice(parent.length ? parent.length + 1 : 0);
-      const list = await call(`${where}/contents/${segments(parent)}?ref=${encodeURIComponent(repo.branch)}`, {token});
-      if (list.status === 404) return [];
-      if (!list.ok || !Array.isArray(list.data)) throw new GitHubError("Couldn't list the files on GitHub.");
-      const dir = list.data.find((e) => e.name === name && e.type === "dir");
-      if (!dir) return [];
-      const tree = await call(`${where}/git/trees/${dir.sha}?recursive=1`, {token});
-      if (!tree.ok) throw new GitHubError("Couldn't list the files on GitHub.");
-      if (tree.data.truncated) throw new GitHubError("This site has too many files for GitHub to list in one go.");
-      return tree.data.tree
+      // The folder's tree: the branch's own for the repo's top, else the folder's entry in its
+      // parent's listing.
+      let tree = encodeURIComponent(repo.branch);
+      if (folder !== "") {
+        const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
+        const name = folder.slice(parent ? parent.length + 1 : 0);
+        const list = await call(`${where}/contents/${segments(parent)}?ref=${encodeURIComponent(repo.branch)}`, {token});
+        if (list.status === 404) return [];
+        if (!list.ok || !Array.isArray(list.data)) throw new GitHubError("Couldn't list the files on GitHub.");
+        const dir = list.data.find((e) => e.name === name && e.type === "dir");
+        if (!dir) return [];
+        tree = dir.sha;
+      }
+      const res = await call(`${where}/git/trees/${tree}?recursive=1`, {token});
+      if (!res.ok) throw new GitHubError("Couldn't list the files on GitHub.");
+      if (res.data.truncated) throw new GitHubError("This site has too many files for GitHub to list in one go.");
+      return res.data.tree
         .filter((e) => e.type === "blob" && (e.mode === "100644" || e.mode === "100755") && e.path.endsWith(".md"))
         .map((e) => ({path: e.path, sha: e.sha, size: e.size}))
         .sort((a, b) => a.path.localeCompare(b.path));
