@@ -1,6 +1,7 @@
-// The account panel: who is signed in, a sign-out button and, for admins, Settings (the user
-// manager). The gate adds it to every dashboard page a signed-in user sees, as the page is
-// served, so the static build doesn't change and read-only users see no admin link.
+// The account panel: who is signed in, a sign-out button and, for admins, "Edit this page" (when
+// the config names a repo) and Settings (the user manager). The gate adds it to every dashboard
+// page a signed-in user sees, as the page is served, so the static build doesn't change and
+// read-only users see no admin link.
 //
 // On a Framework page it goes at the bottom of the sidebar (#observablehq-sidebar), and so opens
 // and closes with it; the sidebar becomes a column so the panel sits at its foot, and stays in
@@ -24,10 +25,12 @@ const STYLE = `<style>
 #obs-account form{margin:0}
 </style>`;
 
-export function accountBar(who, {admin}) {
+/** `edit` is the editor's address for this page, for admins, or null. */
+export function accountBar(who, {admin, edit = null}) {
   const via = who.provider && who.provider !== "email" ? ` <span class="obs-via">via ${escape(who.provider)}</span>` : "";
   const inner = `<div class="obs-who" title="${escape(who.user.email)}">${escape(who.user.email)}${via}</div>`
     + `<div class="obs-actions">`
+    + (admin && edit ? `<a href="${escape(edit)}">Edit this page</a>` : "")
     + (admin ? `<a href="/_obs/admin">Settings</a>` : "")
     + `<form method="post" action="/_obs/signout"><button type="submit">Sign out</button></form>`
     + `</div>`;

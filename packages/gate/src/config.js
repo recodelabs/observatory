@@ -29,6 +29,28 @@ function access(a, where) {
   return a.map((c, i) => condition(c, `${where}[${i}]`));
 }
 
+/** A folder in the repo: a relative path without "." or ".." segments; "" for the top. */
+function folder(f, where) {
+  if (typeof f !== "string" || f.startsWith("/") || f.endsWith("/") || /\\/.test(f)
+      || (f !== "" && f.split("/").some((x) => !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(x)))) {
+    throw new Error(`${where}: a folder in the repo, like "sites/main" (no leading or trailing "/")`);
+  }
+  return f;
+}
+
+/** The repo the editor commits to, or null when there is none (no editor). */
+function repo(r) {
+  if (r === undefined || r === null) return null;
+  const m = /^([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)$/.exec(r.github ?? "");
+  if (!m || m[2] === "." || m[2] === "..") throw new Error(`repo.github: "owner/name", like "recodelabs/icr"`);
+  if (typeof r.branch !== "string" || !/^[A-Za-z0-9_./-]+$/.test(r.branch) || r.branch.split("/").includes("..")) throw new Error("repo.branch: a branch name");
+  // The GitHub App that commits the edits: its App ID or Client ID. Its private key is the
+  // Worker secret GITHUB_APP_PRIVATE_KEY, never in the config.
+  const app = r.app === undefined ? null : String(r.app);
+  if (app !== null && !/^(?:\d+|Iv[A-Za-z0-9.]+)$/.test(app)) throw new Error("repo.app: the GitHub App's App ID or Client ID");
+  return {owner: m[1], name: m[2], branch: r.branch, root: folder(r.root ?? "", "repo.root"), app};
+}
+
 export function loadConfig(raw) {
   if (!raw || typeof raw !== "object") throw new Error("observatory.config.js must export a config object");
   const sites = (raw.sites ?? []).map((s, i) => {
@@ -36,7 +58,10 @@ export function loadConfig(raw) {
     if (!NAME.test(s?.name ?? "")) throw new Error(`${where}.name: lowercase letters, digits and -`);
     if (!PATH.test(s.path ?? "") || s.path.split("/").includes("..")) throw new Error(`${where}.path: starts and ends with "/"`);
     // Request paths have no leading slash: the site at "/ug/" owns "ug/…", the site at "/" owns "".
-    return {name: s.name, path: s.path, prefix: s.path.slice(1), access: access(s.access, `${where}.access`)};
+    // Where the site's Markdown lives in the repo, for the editor: repo.root + dir + root.
+    const dir = s.dir === undefined ? null : folder(s.dir, `${where}.dir`);
+    const root = folder(s.root ?? "src", `${where}.root`);
+    return {name: s.name, path: s.path, prefix: s.path.slice(1), access: access(s.access, `${where}.access`), dir, root};
   });
   if (!sites.length) throw new Error("sites: at least one site is required");
   const paths = new Set();
@@ -81,6 +106,7 @@ export function loadConfig(raw) {
     sites,
     exceptions,
     sitesFolder,
+    repo: repo(raw.repo),
     brand: {title: raw.brand?.title ?? "Dashboards", accent: raw.brand?.accent ?? null, logo: raw.brand?.logo ?? null},
     auth: {
       sessionDays: auth.sessionDays ?? 30,

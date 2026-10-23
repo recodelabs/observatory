@@ -45,7 +45,8 @@ Observatory logo at `/_obs/observatory.svg`, so `logo: "/_obs/observatory.svg"` 
 
 On every dashboard page a signed-in user opens, the gate adds a small panel with:
 - their email, and the Keycloak realm if they signed in with one;
-- for admins, "Settings": the user manager at `/_obs/admin`;
+- for admins, "Edit this page" (when the config names a repo; see below) and "Settings", the
+  user manager at `/_obs/admin`;
 - a "Sign out" button.
 
 On a Framework page it sits at the foot of the sidebar, and opens and closes with it. A page
@@ -103,6 +104,38 @@ login page gets a "Sign in with …" button for it.
   never an admin. The first person to sign up is *not* made an admin (doorman did that);
   the first admin is the verified address that `auth.admins` names.
 
+## Editing pages
+
+Admins can edit a dashboard page's Markdown in the gate. Each save commits that one file to
+GitHub. The config says where:
+
+```js
+repo: {github: "recodelabs/icr", branch: "main", root: "dashboards", app: 5445395},
+sites: [{name: "uganda", path: "/ug/", dir: "sites/uganda", …}]
+```
+
+A site's pages are the `.md` files in `repo.root` + `dir` + `root` (Framework's source folder,
+`"src"` unless the site sets `root`). Sites without `dir` can't be edited.
+
+- `/_obs/edit/` lists every site's pages. `/_obs/edit/<site>/<page>` shows the page's Markdown
+  next to the live page. The "Edit this page" link in the account panel opens it.
+- A save is one commit to `repo.branch`, titled "Edit <site>/<file>", plus the admin's note
+  if they add one. Its author is the admin; the GitHub App commits it.
+- If the file changed on GitHub after the editor opened it, the save is refused and the text
+  stays in the box.
+- A save doesn't change the site. The page changes at the next deploy.
+- Only existing `.md` files can be edited, up to 1 MB: no new or deleted pages, data loaders,
+  components or config. Symlinks and submodules are never listed.
+- Every request checks that the user is an admin, and saves need the session's CSRF token and
+  this host's `Origin`.
+
+The gate reaches GitHub through a GitHub App (`repo.app`, its App ID). Install it on the repo
+only, with "Contents: read and write" and nothing else. The App's private key is the Worker
+secret `GITHUB_APP_PRIVATE_KEY`. The `.pem` GitHub gives you (PKCS#1) works as it is, and so does
+PKCS#8. For each request the gate signs a JWT with the key, swaps it for an installation token
+limited to that repo and `contents: write`, and uses that. No token goes in a response or a
+log.
+
 ## A deployment
 
 A project imports the gate in its Worker entry file, with its `observatory.config.js`:
@@ -120,7 +153,8 @@ Its `wrangler.jsonc` needs:
 - `vars.BASE_URL`, the canonical https origin.
 
 The secrets are `BETTER_AUTH_SECRET` (32+ random characters), `RESEND_API_KEY`, and
-`OIDC_<ID>_SECRET` for each Keycloak provider, if any. Without
+`OIDC_<ID>_SECRET` for each Keycloak provider, if any, and `GITHUB_APP_PRIVATE_KEY` for the
+editor. Without
 `RESEND_API_KEY`, mail is written to the log instead of being sent.
 
 `observatory deploy` will apply the D1 migrations and deploy the gate (phase 3, next).

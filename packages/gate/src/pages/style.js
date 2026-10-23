@@ -28,6 +28,7 @@ h1+h2{color:var(--theme-foreground);font-size:20px;font-style:italic;font-weight
 h3{font:700 14px/1.3 var(--sans-serif);color:var(--theme-foreground);margin:0 0 .75rem}
 .logo{display:block;height:120px;max-width:100%;margin-bottom:1.25rem}
 .shell:not(.wide) :is(.logo,h1,h1+h2){margin-left:auto;margin-right:auto;text-align:center}
+.shell.wide .logo{height:44px;margin-bottom:.75rem}
 p{max-width:640px;margin:0 0 1rem}
 .card{background:var(--theme-background-a);border:1px solid var(--theme-foreground-faintest);border-radius:.75rem;padding:1rem 1.25rem 1.25rem;
   margin:0 0 1rem;font:14px/1.5 var(--sans-serif)}
@@ -71,4 +72,13 @@ td .acts{display:flex;gap:.25rem .9rem;flex-wrap:wrap}td .acts button{font-size:
 .status{white-space:nowrap}.status::before{content:"";display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.4rem;
   background:var(--theme-foreground-fainter);vertical-align:.05em}
 .status.active::before{background:var(--theme-green)}.status.pending::before{background:var(--theme-yellow)}.status.disabled::before{background:var(--theme-red)}
+ul.files{columns:16rem;margin:.5rem 0 0;padding-left:1.25rem}ul.files li{break-inside:avoid}
+code{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.edit-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem;height:calc(100vh - 24rem);min-height:24rem}
+.edit-grid textarea,.edit-grid iframe{width:100%;height:100%;box-sizing:border-box;border:1px solid var(--theme-foreground-faintest);border-radius:.75rem;
+  background:var(--theme-background-a)}
+.edit-grid textarea{resize:none;padding:1rem;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--theme-foreground);tab-size:2}
+.edit-grid textarea:focus{outline:none;border-color:var(--theme-foreground-focus);box-shadow:0 0 0 3px color-mix(in srgb,var(--theme-foreground-focus) 20%,transparent)}
+@media (max-width:760px){.edit-grid{grid-template-columns:minmax(0,1fr);height:auto}.edit-grid textarea{height:60vh}.edit-grid iframe{height:70vh}}
+form.editor .actions input[type=text]{flex:1 1 16rem;width:auto}
 `;
