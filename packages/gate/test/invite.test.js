@@ -79,6 +79,8 @@ describe("invitations", () => {
   it("the invited user signs in by link, their address is confirmed, and they see their site", async () => {
     const login = await (await get("/_obs/login?email=guest%40elsewhere.test", NAV)).text();
     expect(login).toContain('value="guest@elsewhere.test"');
+    // The sign-in page has the site's title and the form; no "Sign in" subtitle above it.
+    expect(login).not.toContain("<h2>");
     const cookie = await signInByLink("guest@elsewhere.test");
     expect((await row("guest@elsewhere.test")).emailVerified).toBe(1);
     const ug = await get("/ug/", {...NAV, cookie});

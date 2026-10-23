@@ -8,10 +8,11 @@ const FONTS = "https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz
 
 /**
  * A gate page, laid out like a Framework page: the site's title as the heading, the page's own
- * title under it, then the body. `account` ({email}) adds a bar at the top with a link back to
+ * title under it (unless `heading` is false, as on the sign-in page, where the form says it), then
+ * the body. `account` ({email}) adds a bar at the top with a link back to
  * the dashboards, the signed-in address and Sign out.
  */
-export function page({config, title, body, message = null, error = null, wide = false, account = null}) {
+export function page({config, title, body, message = null, error = null, wide = false, account = null, heading = true}) {
   const brand = config.brand;
   const logo = brand.logo ? `<img class="logo" src="${escape(brand.logo)}" alt="">` : "";
   const top = account ? `<nav class="top"><a href="/">← Back to the dashboards</a><span class="who"><span class="email">${escape(account.email)}</span>`
@@ -19,7 +20,7 @@ export function page({config, title, body, message = null, error = null, wide = 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escape(title)} · ${escape(brand.title)}</title><link rel="stylesheet" href="${FONTS}">
 <style>${STYLE}${brand.accent ? `:root{--theme-foreground-focus:${escape(brand.accent)}}` : ""}</style></head>
-<body><div class="shell${wide ? " wide" : ""}">${top}<main>${logo}<h1><a href="/">${escape(brand.title)}</a></h1><h2>${escape(title)}</h2>
+<body><div class="shell${wide ? " wide" : ""}">${top}<main>${logo}<h1><a href="/">${escape(brand.title)}</a></h1>${heading ? `<h2>${escape(title)}</h2>` : ""}
 ${error ? `<div class="msg err" role="alert">${escape(error)}</div>` : ""}${message ? `<div class="msg" role="status">${escape(message)}</div>` : ""}
 ${body}</main></div></body></html>`;
 }

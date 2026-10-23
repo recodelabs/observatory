@@ -36,7 +36,8 @@ The site's own modules (`_import/…`), data (`_file/…`) and search index
 
 The sign-in, sign-up and Settings pages use the look of Framework's light theme (grey page,
 white cards, Source Serif 4 headings, Framework's table style), so they match the dashboards.
-`brand.title` is the heading on every page; `brand.accent` changes the link colour (Framework's
+`brand.title` is the heading on every page, with the page's name under it (except on the
+sign-in page, where the form is the whole page); `brand.accent` changes the link colour (Framework's
 blue when unset) and `brand.logo` adds an image above the title.
 
 ## The account panel

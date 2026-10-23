@@ -31,7 +31,7 @@ function loginForm({config, env, next, email = "", message, error}) {
 </form>
 </div>
 <p class="note">No account? <a href="/_obs/signup">Sign up</a></p>`;
-  return page({config, title: "Sign in", body, message, error});
+  return page({config, title: "Sign in", body, message, error, heading: false});
 }
 
 login.get("/login", (c) => {
