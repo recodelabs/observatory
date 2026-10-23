@@ -53,21 +53,42 @@ export async function createInvitedUser(db, {email, name, role}) {
   return id;
 }
 
-/** Replace the sites an admin has granted a user with `sites` (site names). */
-export async function setSites(db, userId, sites, by) {
-  await db.deleteFrom("siteGrant").where("userId", "=", userId).execute();
-  if (sites.length) {
-    const now = new Date().toISOString();
-    await db.insertInto("siteGrant").values(sites.map((site) => ({userId, site, createdAt: now, createdBy: by}))).execute();
-  }
+/**
+ * Replace the sites an admin has granted a user with `sites` (site names), in one D1 batch, so
+ * two admins saving at once leave one of their choices rather than both mixed. `d1` is the D1
+ * binding (env.DB).
+ */
+export async function setSites(d1, userId, sites, by) {
+  const now = new Date().toISOString();
+  await d1.batch([
+    d1.prepare(`DELETE FROM "siteGrant" WHERE "userId" = ?`).bind(userId),
+    ...sites.map((site) => d1.prepare(`INSERT INTO "siteGrant" ("userId", "site", "createdAt", "createdBy") VALUES (?, ?, ?, ?)`)
+      .bind(userId, site, now, by))
+  ]);
 }
 
 /** Add sites to the ones a user has been granted. */
-export async function addSites(db, userId, sites, by) {
+export async function addSites(d1, userId, sites, by) {
   if (!sites.length) return;
   const now = new Date().toISOString();
-  await db.insertInto("siteGrant").values(sites.map((site) => ({userId, site, createdAt: now, createdBy: by})))
-    .onConflict((oc) => oc.columns(["userId", "site"]).doNothing()).execute();
+  await d1.batch(sites.map((site) => d1.prepare(
+    `INSERT INTO "siteGrant" ("userId", "site", "createdAt", "createdBy") VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`)
+    .bind(userId, site, now, by)));
+}
+
+/**
+ * Make an account with an unconfirmed address safe to hand to whoever owns that address: end its
+ * sessions and remove its password and sign-in accounts (with their Keycloak claims), in one
+ * batch. Anyone can sign up with someone else's address, so until it is confirmed, the account's
+ * credentials may belong to someone else. What is left can only be signed into with an emailed
+ * link, which confirms the address.
+ */
+export async function resetUnconfirmed(d1, userId) {
+  await d1.batch([
+    d1.prepare(`DELETE FROM "session" WHERE "userId" = ?`).bind(userId),
+    d1.prepare(`DELETE FROM "account" WHERE "userId" = ?`).bind(userId),
+    d1.prepare(`DELETE FROM "oidcClaims" WHERE "userId" = ?`).bind(userId)
+  ]);
 }
 
 /** Delete a user with their sessions, sign-in accounts and site grants. */

@@ -1,6 +1,6 @@
 import {env} from "cloudflare:workers";
 import {beforeAll, describe, it, expect, vi} from "vitest";
-import {app, putSite, signUp, verify, get, post, NAV} from "./helpers.js";
+import {app, putSite, signUp, signIn, verify, get, post, NAV} from "./helpers.js";
 
 // helpers.js's config: "main" (/, signed-in), "ug" (/ug/, the team.example domain) and "off"
 // (/off/, disabled). Only "ug" has a list of conditions, so only "ug" can be granted.
@@ -105,12 +105,29 @@ describe("invitations", () => {
     expect((await get("/ug/", {...NAV, cookie})).status).toBe(403);
     await env.DB.prepare("update user set status = 'active' where email = ?").bind("guest@elsewhere.test").run();
   });
-  it("inviting someone who signed up activates them and adds the sites", async () => {
-    await signUp("waiting@elsewhere.test");
+  it("inviting an unconfirmed signup first takes away its sessions and password", async () => {
+    // Anyone can sign up with someone else's address; until it is confirmed, the password and
+    // sessions may be a stranger's. The invitation must reach only the mailbox's owner.
+    const squatter = await signUp("waiting@elsewhere.test");
     expect((await row("waiting@elsewhere.test")).status).toBe("pending");
-    await post("/_obs/admin/invite", form({email: "waiting@elsewhere.test", site: "ug"}), {cookie: adminCookie});
+    await post("/_obs/admin/invite", form({email: "waiting@elsewhere.test", site: "ug", admin: "1"}), {cookie: adminCookie});
     expect((await row("waiting@elsewhere.test")).status).toBe("active");
     expect(await grants("waiting@elsewhere.test")).toEqual(["ug"]);
+    const old = await get("/ug/", {...NAV, cookie: squatter});
+    expect(old.status).toBe(302);
+    expect(old.headers.get("location")).toMatch(/^\/_obs\/login/);
+    await expect(signIn("waiting@elsewhere.test")).rejects.toThrow(/sign-in 40/);
+    // The owner signs in with the emailed link, which confirms the address.
+    const owner = await signInByLink("waiting@elsewhere.test");
+    expect((await get("/ug/", {...NAV, cookie: owner})).status).toBe(200);
+    expect((await get("/_obs/admin", {...NAV, cookie: owner})).status).toBe(200);
+  });
+  it("inviting a confirmed user keeps their sign-in and adds the sites", async () => {
+    const cookie = await signUp("known@elsewhere.test");
+    await verify("known@elsewhere.test");
+    await post("/_obs/admin/invite", form({email: "known@elsewhere.test", site: "ug"}), {cookie: adminCookie});
+    expect((await row("known@elsewhere.test")).status).toBe("active");
+    expect((await get("/ug/", {...NAV, cookie})).status).toBe(200);
   });
   it("can invite an admin", async () => {
     await post("/_obs/admin/invite", form({email: "boss@elsewhere.test", admin: "1"}), {cookie: adminCookie});
