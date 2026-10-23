@@ -369,11 +369,15 @@ preview builds and pull requests come later.
 
 - **Phase 4: the editor, committing to GitHub.**
   - **Where:** `/_obs/edit/` lists each site's pages. `/_obs/edit/<site>/<page>` opens
-    one page's Markdown in CodeMirror, with the live page beside it.
+    one page's Markdown with the live page beside it. The first version edits in a plain
+    text box (Tab indents, Ctrl/Cmd-S saves); CodeMirror can come later, bundled with the
+    gate rather than loaded from a CDN, since the editor page carries the CSRF token.
   - **Which files:** the server builds the list of editable files from the config and
     GitHub's tree API:
     - the repository and branch come only from `repo` in the config;
-    - each site's source folder is `repo.root` + `sites[].dir` + Framework's `root`;
+    - each site's source folder is `repo.root` + `sites[].dir` + Framework's `root`
+      (`sites[].root` in the config, `"src"` by default; the gate can't read the site's
+      Framework config);
     - a file is listed only if it is an existing regular file (a blob, not a symlink or
       submodule) ending in `.md` under that folder.
 

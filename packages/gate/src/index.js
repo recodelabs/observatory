@@ -136,12 +136,26 @@ export function createApp(rawConfig) {
         // kept (perhaps from before signing in) would show that copy, without the bar.
         const fresh = new Request(request.url, {headers: new Headers([...request.headers].filter(([k]) => !/^if-/i.test(k)))});
         const res = await serveFromR2(c.env.SITE, config.sitesFolder, fresh, path, d.visibility, notFoundKey);
-        return withAccountBar(res, accountBar(who, {admin: isAdmin(config, who)}));
+        const admin = isAdmin(config, who);
+        return withAccountBar(res, accountBar(who, {admin, edit: admin ? editLink(config, site, path) : null}));
       }
     }
   });
 
   return app;
+}
+
+/**
+ * The editor's address for the page at `path` (no leading "/") in `site`: Framework builds
+ * page.md as /page (or /page.html) and dir/index.md as /dir/. Null without a repo, for a site
+ * with no folder in it, or for a path that isn't a page.
+ */
+export function editLink(config, site, path) {
+  if (!config.repo || !site || site.dir === null) return null;
+  let page = path.slice(site.prefix.length).replace(/\.html$/, "");
+  if (page === "" || page.endsWith("/")) page += "index";
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_.\/-]*$/.test(page) || /\.[a-z0-9]+$/i.test(page.split("/").pop())) return null;
+  return `/_obs/edit/${encodeURIComponent(site.name)}/${page.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 /** The Worker export for a deployment: `export default createGate(config)` in its entry file. */
