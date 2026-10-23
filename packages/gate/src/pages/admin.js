@@ -1,7 +1,7 @@
 import {Hono} from "hono";
 import {page, html, escape} from "./layout.js";
 import {csrfToken, checkCsrf} from "./csrf.js";
-import {dbFor, listUsers, setStatus, setRole, deleteUser, getUser, getUserByEmail, createInvitedUser, setSites, addSites, replaceUnconfirmed} from "../users.js";
+import {dbFor, listUsers, setStatus, setRole, deleteUser, getUser, getUserByEmail, createInvitedUser, setSites, addSites, replaceUnconfirmed, inviteExisting} from "../users.js";
 import {isAdmin, statusOf, holds} from "../access.js";
 import {sendMail, MailError} from "../mail.js";
 
@@ -94,6 +94,7 @@ admin.post("/admin/invite", async (c) => {
   if (!user) {
     await createInvitedUser(db, {email, name, role: makeAdmin ? "admin" : "user"});
     user = await getUserByEmail(db, email);
+    await addSites(c.env.DB, user.id, sites, s.user.email);
   } else if (user.status === "disabled") {
     // Disabled wins over everything, invitations too: an admin enables the account on purpose.
     return c.redirect("/_obs/admin?ok=disabled", 302);
@@ -105,10 +106,8 @@ admin.post("/admin/invite", async (c) => {
       await replaceUnconfirmed(c.env.DB, user, {name, role: makeAdmin ? "admin" : "user"});
       user = await getUserByEmail(db, email);
     }
-    if (user.status === "pending") await setStatus(db, user.id, "active");
-    if (makeAdmin) await setRole(db, user.id, "admin");
+    await inviteExisting(c.env.DB, user.id, {makeAdmin, sites, by: s.user.email});
   }
-  await addSites(c.env.DB, user.id, sites, s.user.email);
   const where = makeAdmin ? "every site" : sites.length ? sites.map((n) => siteLabel(config.sites.find((x) => x.name === n))).join(", ") : config.brand.title;
   const link = `${c.env.BASE_URL}/_obs/login?email=${encodeURIComponent(email)}`;
   try {

@@ -109,6 +109,23 @@ export async function replaceUnconfirmed(d1, old, {name, role}) {
   return id;
 }
 
+/**
+ * An invitation's changes to an existing account, in one D1 batch, each conditional on the
+ * account as stored at that moment: a pending account becomes active, an admin invitation makes
+ * it an admin, and the ticked sites are added, none of it if the account is disabled by then.
+ * (The caller has already refused a disabled account; this covers one disabled in between.)
+ */
+export async function inviteExisting(d1, userId, {makeAdmin, sites, by}) {
+  const now = new Date().toISOString();
+  const enabled = `EXISTS (SELECT 1 FROM "user" WHERE "id" = ? AND "status" != 'disabled')`;
+  await d1.batch([
+    d1.prepare(`UPDATE "user" SET "status" = 'active', "updatedAt" = ? WHERE "id" = ? AND "status" = 'pending'`).bind(now, userId),
+    ...(makeAdmin ? [d1.prepare(`UPDATE "user" SET "role" = 'admin', "updatedAt" = ? WHERE "id" = ? AND "status" != 'disabled'`).bind(now, userId)] : []),
+    ...sites.map((site) => d1.prepare(`INSERT INTO "siteGrant" ("userId", "site", "createdAt", "createdBy")
+      SELECT ?, ?, ?, ? WHERE ${enabled} ON CONFLICT DO NOTHING`).bind(userId, site, now, by, userId))
+  ]);
+}
+
 /** Delete a user with their sessions, sign-in accounts and site grants. */
 export async function deleteUser(db, userId) {
   await db.deleteFrom("siteGrant").where("userId", "=", userId).execute();

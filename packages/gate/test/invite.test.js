@@ -1,5 +1,6 @@
 import {env} from "cloudflare:workers";
 import {beforeAll, describe, it, expect, vi} from "vitest";
+import {inviteExisting} from "../src/users.js";
 import {app, putSite, signUp, signIn, verify, get, post, NAV} from "./helpers.js";
 
 // helpers.js's config: "main" (/, signed-in), "ug" (/ug/, the team.example domain) and "off"
@@ -148,6 +149,16 @@ describe("invitations", () => {
       expect(after).toMatchObject({id, status: "disabled", role: "user"});
       expect(await grants(email)).toEqual([]);
     }
+  });
+  it("an account disabled between the check and the invitation's writes stays as it is", async () => {
+    await signUp("racer@elsewhere.test");
+    await verify("racer@elsewhere.test");
+    const {id} = await row("racer@elsewhere.test");
+    // The admin page found it pending; it is disabled before the invitation's batch runs.
+    await env.DB.prepare("update user set status = 'disabled' where id = ?").bind(id).run();
+    await inviteExisting(env.DB, id, {makeAdmin: true, sites: ["ug"], by: "admin@example.org"});
+    expect(await row("racer@elsewhere.test")).toMatchObject({status: "disabled", role: "user"});
+    expect(await grants("racer@elsewhere.test")).toEqual([]);
   });
   it("can invite an admin", async () => {
     await post("/_obs/admin/invite", form({email: "boss@elsewhere.test", admin: "1"}), {cookie: adminCookie});
