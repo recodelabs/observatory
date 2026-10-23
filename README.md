@@ -1,3 +1,8 @@
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="observatory-white.svg">
+  <img src="observatory.svg" alt="Observatory" width="220">
+</picture></p>
+
 # Observatory
 
 Observatory publishes [Observable Framework](https://observablehq.com/framework/) dashboards
