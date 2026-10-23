@@ -16,20 +16,21 @@ function loginForm({config, env, next, email = "", message, error}) {
   const oidc = providers.map((p) => `
 <form method="post" action="/_obs/oidc/${escape(p.id)}">
   <input type="hidden" name="next" value="${escape(next)}">
-  <button type="submit">Sign in with ${escape(p.name)}</button>
-</form>`).join("") + (providers.length ? `<p class="muted" style="text-align:center">or with your email</p>` : "");
-  const body = `${oidc}
+  <button type="submit" class="full">Sign in with ${escape(p.name)}</button>
+</form>`).join("") + (providers.length ? `<div class="or">or with your email</div>` : "");
+  const body = `<div class="card">${oidc}
 <form method="post" action="/_obs/login">
   <input type="hidden" name="next" value="${escape(next)}">
-  <label for="email">Email</label><input id="email" type="email" name="email" value="${escape(email)}" required autofocus>
-  <label for="password">Password</label><input id="password" type="password" name="password" required>
-  <button type="submit">Sign in</button>
+  <label for="email">Email</label><input id="email" type="email" name="email" value="${escape(email)}" autocomplete="email" required autofocus>
+  <label for="password">Password</label><input id="password" type="password" name="password" autocomplete="current-password" required>
+  <div class="actions"><button type="submit" class="primary full">Sign in</button></div>
 </form>
-<form method="post" action="/_obs/magic" style="margin-top:12px">
+<form method="post" action="/_obs/magic" class="actions">
   <input type="hidden" name="next" value="${escape(next)}"><input type="hidden" name="email" value="${escape(email)}">
-  <button type="submit" class="quiet" onclick="this.form.email.value=document.getElementById('email').value">Email me a sign-in link instead</button>
+  <button type="submit" class="link" onclick="this.form.email.value=document.getElementById('email').value">Email me a sign-in link instead</button>
 </form>
-<p class="muted">No account? <a href="/_obs/signup">Sign up</a></p>`;
+</div>
+<p class="note">No account? <a href="/_obs/signup">Sign up</a></p>`;
   return page({config, title: "Sign in", body, message, error});
 }
 
@@ -90,5 +91,5 @@ login.post("/magic", async (c) => {
   // one fixed message. The answer below is the same either way, so nothing is enumerable.
   const known = await auth.db.selectFrom("user").select("id").where("email", "=", email).executeTakeFirst();
   if (known) await callAuth(auth, c.env, c.req.raw, "/auth/sign-in/magic-link", {email, callbackURL: next});
-  return html(c, page({config, title: "Check your email", body: `<p>If <strong>${escape(email)}</strong> has an account, a sign-in link is on its way. It expires in 5 minutes.</p><p><a href="/_obs/login">Back</a></p>`}));
+  return html(c, page({config, title: "Check your email", body: `<div class="card">If <strong>${escape(email)}</strong> has an account, a sign-in link is on its way. It expires in 5 minutes.</div><p class="note"><a href="/_obs/login">Back to sign in</a></p>`}));
 });

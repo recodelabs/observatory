@@ -42,7 +42,7 @@ admin.get("/admin", async (c) => {
   const users = await listUsers(dbFor(c.env));
   const sites = grantable(config);
   const csrfField = `<input type="hidden" name="csrf" value="${csrf}">`;
-  const btn = (action, userId, label) => `<form method="post" action="/_obs/admin/${action}"><input type="hidden" name="userId" value="${escape(userId)}">${csrfField}<button type="submit">${label}</button></form>`;
+  const btn = (action, userId, label, cls = "link") => `<form method="post" action="/_obs/admin/${action}"><input type="hidden" name="userId" value="${escape(userId)}">${csrfField}<button type="submit" class="${cls}">${label}</button></form>`;
   const byConfig = (u) => config.auth.admins.some((cond) => holds(cond, {user: u}));
   const rows = users.map((u) => {
     const self = u.id === s.user.id;
@@ -52,28 +52,30 @@ admin.get("/admin", async (c) => {
     const actions = [
       status !== "active" ? btn(status === "pending" ? "approve" : "enable", u.id, status === "pending" ? "Approve" : "Enable") : (!self ? btn("disable", u.id, "Disable") : ""),
       byConfig(u) ? "" : u.role === "admin" ? (!self ? btn("remove-admin", u.id, "Remove admin") : "") : btn("make-admin", u.id, "Make admin"),
-      !self ? btn("delete", u.id, "Delete") : ""
+      !self ? btn("delete", u.id, "Delete", "link danger") : ""
     ].join("");
     const how = [u.providers.join(", ") || "email link", u.groups.length ? u.groups.join(" ") : ""].filter(Boolean).join(" · ");
+    // Ticking a site saves at once; without scripts, the Save button does it.
     const siteForm = sites.length ? `<td><form method="post" action="/_obs/admin/sites" class="sites"><input type="hidden" name="userId" value="${escape(u.id)}">${csrfField}`
-      + sites.map((x) => `<label class="check"><input type="checkbox" name="site" value="${escape(x.name)}"${u.sites.includes(x.name) ? " checked" : ""}> ${escape(x.name)}</label>`).join("")
-      + `<button type="submit">Save</button></form></td>` : "";
-    return `<tr><td>${escape(u.email)}<br><span class="muted">${escape(u.name)}${u.emailVerified ? "" : " · email not confirmed"} · ${escape(how)}</span></td><td>${escape(status)}</td><td>${escape(role)}</td>${siteForm}<td>${fmt(u.createdAt)}</td><td>${fmt(u.lastSignIn)}</td><td>${actions}</td></tr>`;
+      + sites.map((x) => `<label class="check"><input type="checkbox" name="site" value="${escape(x.name)}"${u.sites.includes(x.name) ? " checked" : ""} onchange="this.form.requestSubmit()"> ${escape(x.name)}</label>`).join("")
+      + `<noscript><button type="submit" class="link">Save</button></noscript></form></td>` : "";
+    return `<tr><td>${escape(u.email)}${self ? ` <span class="muted">(you)</span>` : ""}<span class="sub">${escape(u.name)}${u.emailVerified ? "" : " · email not confirmed"} · ${escape(how)}</span></td>`
+      + `<td><span class="status ${escape(status)}">${escape(status)}</span></td><td>${escape(role)}</td>${siteForm}`
+      + `<td class="date">${fmt(u.createdAt)}</td><td class="date">${fmt(u.lastSignIn)}</td><td><div class="acts">${actions}</div></td></tr>`;
   }).join("");
-  const invite = `<h2>Invite someone</h2>
+  const invite = `<div class="card"><h3>Invite someone</h3>
 <form method="post" action="/_obs/admin/invite" class="invite">${csrfField}
   <div class="row"><div><label for="invite-email">Email</label><input id="invite-email" type="email" name="email" required></div>
   <div><label for="invite-name">Name <span class="muted">(optional)</span></label><input id="invite-name" type="text" name="name"></div></div>
   ${sites.length ? `<label>Can see</label><div class="checks">${sites.map((x) => `<label class="check"><input type="checkbox" name="site" value="${escape(x.name)}"> ${escape(siteLabel(x))}</label>`).join("")}</div>` : ""}
-  <div><label class="check"><input type="checkbox" name="admin" value="1"> Admin <span class="muted">(every site, and this page)</span></label></div>
-  <div><button type="submit">Send invitation</button></div>
-</form>
-<p class="muted">They get an email with a link to sign in; no password is needed.${sites.length ? " Public sites need no invitation." : ""}</p>`;
-  const body = `${invite}<h2>Users</h2><table><thead><tr><th>User</th><th>Status</th><th>Role</th>${sites.length ? "<th>Can see</th>" : ""}<th>Created</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-${sites.length ? `<p class="muted">"Can see" lists the sites you have opened to each person. People also get in through the site's own rules (for example a Keycloak group or an email domain), and admins see every site.</p>` : ""}
-<p class="muted">Signed in as ${escape(s.user.email)} · <a href="/">Site</a></p><form method="post" action="/_obs/signout"><button class="quiet">Sign out</button></form>`;
+  <label>Role</label><div class="checks"><label class="check"><input type="checkbox" name="admin" value="1"> Admin <span class="muted">(every site, and this page)</span></label></div>
+  <div class="actions"><button type="submit" class="primary">Send invitation</button>
+  <span class="muted">They get an email with a link to sign in; no password is needed.${sites.length ? " Public sites need no invitation." : ""}</span></div>
+</form></div>`;
+  const body = `${invite}<div class="card"><h3>Users</h3><div class="scroll"><table><thead><tr><th>User</th><th>Status</th><th>Role</th>${sites.length ? "<th>Can see</th>" : ""}<th>Created</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+${sites.length ? `<p class="muted">"Can see" lists the sites you have opened to each person. People also get in through the site's own rules (for example a Keycloak group or an email domain), and admins see every site.</p>` : ""}</div>`;
   const ok = c.req.query("ok");
-  return html(c, page({config, title: "Settings", body, wide: true, message: ok ? (MESSAGES[ok] ?? MESSAGES.done) : null}));
+  return html(c, page({config, title: "Settings", body, wide: true, account: {email: s.user.email}, message: ok ? (MESSAGES[ok] ?? MESSAGES.done) : null}));
 });
 
 // Invite: create the account (active, no password) or find the existing one (an unconfirmed one

@@ -4,14 +4,24 @@ export function escape(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 }
 
-export function page({config, title, body, message = null, error = null, wide = false}) {
+const FONTS = "https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap";
+
+/**
+ * A gate page, laid out like a Framework page: the site's title as the heading, the page's own
+ * title under it, then the body. `account` ({email}) adds a bar at the top with a link back to
+ * the dashboards, the signed-in address and Sign out.
+ */
+export function page({config, title, body, message = null, error = null, wide = false, account = null}) {
   const brand = config.brand;
-  const logo = brand.logo ? `<img src="${escape(brand.logo)}" alt="" style="height:32px;margin-bottom:12px">` : "";
+  const logo = brand.logo ? `<img class="logo" src="${escape(brand.logo)}" alt="">` : "";
+  const top = account ? `<nav class="top"><a href="/">← Back to the dashboards</a><span class="who">${escape(account.email)}`
+    + `<form method="post" action="/_obs/signout"><button type="submit" class="link">Sign out</button></form></span></nav>` : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escape(title)} · ${escape(brand.title)}</title><style>${STYLE}:root{--accent:${escape(brand.accent)}}</style></head>
-<body><main class="${wide ? "wide" : ""}"><div class="card">${logo}<h1>${escape(title)}</h1>
-${error ? `<div class="msg err">${escape(error)}</div>` : ""}${message ? `<div class="msg">${escape(message)}</div>` : ""}
-${body}</div><p class="muted" style="text-align:center;font-size:12px">${escape(brand.title)}</p></main></body></html>`;
+<title>${escape(title)} · ${escape(brand.title)}</title><link rel="stylesheet" href="${FONTS}">
+<style>${STYLE}${brand.accent ? `:root{--theme-foreground-focus:${escape(brand.accent)}}` : ""}</style></head>
+<body><div class="shell${wide ? " wide" : ""}">${top}${logo}<h1><a href="/">${escape(brand.title)}</a></h1><h2>${escape(title)}</h2>
+${error ? `<div class="msg err" role="alert">${escape(error)}</div>` : ""}${message ? `<div class="msg" role="status">${escape(message)}</div>` : ""}
+${body}</div></body></html>`;
 }
 
 export function html(c, markup, status = 200, extraHeaders = {}) {

@@ -121,7 +121,7 @@ export function createApp(rawConfig) {
           : `<p>You're signed in as <strong>${escape(user.email)}</strong>, but these dashboards are open only to:</p>
 <ul>${describeRule(rule).map((w) => `<li>${escape(w)}</li>`).join("")}<li>people an admin has added to this site</li><li>admins</li></ul>
 <p>Ask an administrator for access, or sign in with another account.</p>`;
-        return html(c, page({config, title: "No access", body: body + `<form method="post" action="/_obs/signout"><button type="submit" class="quiet">Sign out</button></form>`}), 403);
+        return html(c, page({config, title: "No access", body: `<div class="card">${body}<form method="post" action="/_obs/signout" class="actions"><button type="submit" class="link">Sign out</button></form></div>`}), 403);
       }
       default: {
         const personal = nav && user && request.method === "GET" && statusOf(config, user, who.provider) === "active";

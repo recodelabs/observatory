@@ -15,7 +15,7 @@ pending.get("/pending", (c) => {
     : !s.user.emailVerified
       ? "Check your email for a link to confirm your address. If your address is one this site accepts, that's all; otherwise an administrator approves the account, and you'll get an email when they do."
       : "Your account is waiting for approval. You will get an email when it is approved.";
-  const body = `<p>${text}</p><form method="post" action="/_obs/signout"><button type="submit" class="quiet">Sign out</button></form>`;
+  const body = `<div class="card">${text}<form method="post" action="/_obs/signout" class="actions"><button type="submit" class="link">Sign out</button></form></div>`;
   return html(c, page({config, title: "Almost there", body}));
 });
 

@@ -106,7 +106,7 @@ export default {
     sites: "_site/campaignhq/",   // where builds go: this folder plus each site's path
     worker: "worker"              // the folder `observatory deploy` runs `wrangler deploy` in
   },
-  brand: {title: "Campaign Dashboards", accent: "#0b57d0", logo: null},
+  brand: {title: "Campaign Dashboards", accent: null, logo: null},   // accent: link colour; Framework's blue when null
   repo: {github: "recodelabs/icr", branch: "main", root: "dashboards"},   // what the editor commits to
 
   warehouses: {
