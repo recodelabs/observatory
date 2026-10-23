@@ -34,19 +34,31 @@ function chosenSites(config, form) {
 }
 
 // Saves a row's sites without leaving the page, so focus and a half-filled invitation stay put.
-// The answer is a redirect back to Settings (opaque here); anything else means it wasn't saved.
+// One request per row at a time: a change made while one is under way is sent after it, with the
+// row's state at that moment, so the last request always carries the last ticks. The answer is a
+// redirect back to Settings (opaque here); anything else means it wasn't saved.
 const SAVE_SITES = `<script>
-for (const form of document.querySelectorAll("form.sites")) form.addEventListener("change", async () => {
+for (const form of document.querySelectorAll("form.sites")) {
   const status = form.querySelector(".saved");
-  status.textContent = "Saving…";
-  try {
-    const res = await fetch(form.action, {method: "POST", body: new FormData(form), redirect: "manual", credentials: "same-origin"});
-    if (res.type !== "opaqueredirect" && !res.ok) throw new Error(String(res.status));
-    status.textContent = "Saved";
-  } catch {
-    status.textContent = "Not saved. Reload the page and try again.";
-  }
-});
+  let saving = false, again = false;
+  form.addEventListener("change", async () => {
+    status.textContent = "Saving…";
+    if (saving) { again = true; return; }
+    saving = true;
+    try {
+      do {
+        again = false;
+        const res = await fetch(form.action, {method: "POST", body: new FormData(form), redirect: "manual", credentials: "same-origin"});
+        if (res.type !== "opaqueredirect" && !res.ok) throw new Error(String(res.status));
+      } while (again);
+      status.textContent = "Saved";
+    } catch {
+      status.textContent = "Not saved. Reload the page and try again.";
+    } finally {
+      saving = false;
+    }
+  });
+}
 </script>`;
 
 const MESSAGES = {done: "Done.", disabled: "That account is disabled. Enable it first, then invite them again.", invited: "Invitation sent.", "invited-nomail": "The account is ready, but the invitation email could not be sent. Ask them to sign in with an email link from the sign-in page."};
