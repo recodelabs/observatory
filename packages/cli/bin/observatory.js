@@ -5,9 +5,10 @@ import {build, check, deploy, dev, newSite, pull} from "../src/commands.js";
 const USAGE = `usage: observatory <command> [options]
 
   new <name> [--dir DIR]       create a site from the template (default sites/<name>)
-  dev <site> [--local] [--pull] [preview options…]
-                               preview a site; data from the cached warehouse
-                               (--pull: refresh it first; --local: the local copy)
+  dev <site> [--local] [--pull] [--no-edit] [preview options…]
+                               preview a site and edit its pages beside the preview;
+                               data from the cached warehouse (--pull: refresh it
+                               first; --local: the local copy; --no-edit: preview only)
   pull [<site>…]               copy the sites' warehouses from R2 into the cache
   build [<site>…] [--local]    pull, then build (all sites when none are named)
   deploy [<site>…] [--local] [--skip-build] [--dry-run] [--prune] [--no-worker]
@@ -18,7 +19,7 @@ Run in the folder with observatory.config.js, or one below it.`;
 
 const FLAGS = {
   new: {"--dir": "dir"},
-  dev: {"--local": "local", "--pull": "pull"},
+  dev: {"--local": "local", "--pull": "pull", "--no-edit": "noEdit"},
   pull: {},
   build: {"--local": "local"},
   deploy: {"--local": "local", "--skip-build": "skipBuild", "--dry-run": "dryRun", "--prune": "prune", "--no-worker": "noWorker"},

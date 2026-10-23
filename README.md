@@ -21,10 +21,9 @@ the login Worker, which it absorbs as `packages/gate`.
 
 | Package | State |
 |---|---|
-| `packages/gate` | doorman v0.2, unchanged so far: email and magic-link sign-in, admin approval, public/protected/disabled rules, one site per Worker. 67 tests pass. |
-| `packages/cli` | v0.1: `observatory new`, `dev`, `pull`, `build`, `deploy`, `check`; DuckDB 2.0 swap; template site. See its README. |
-| `packages/components` | v0.1: `adminMap` (MapLibre + PMTiles), choropleth classes, linked filters. See its README. |
-| `packages/editor` | planned (phase 5) |
+| `packages/gate` | v0.4: the Worker that serves the sites and decides who sees what: Keycloak and email sign-in, admins and per-site grants, invitations, and an editor that commits small page fixes to GitHub. See its README. |
+| `packages/cli` | v0.3: `observatory new`, `dev` (with a page editor beside the preview), `pull`, `build`, `deploy`, `check`; DuckDB 2.0 swap; template site. See its README. |
+| `packages/components` | v0.2: `adminMap` (MapLibre + PMTiles), choropleth classes, linked filters. See its README. |
 
 ## Develop
 
@@ -44,6 +43,21 @@ npm run dev              # observatory dev demo --local
 ```
 
 See `packages/gate/README.md` for running the gate locally with wrangler.
+
+### Trying unreleased changes in a project
+
+A project installs the packages from npm. To try changes from this repo before they are
+published, install them from the folder, without saving that to the project's
+`package.json`:
+
+```bash
+cd ../icr/dashboards                       # the project
+npm install --no-save ../../observatory/packages/cli ../../observatory/packages/gate
+npx observatory dev uganda                 # uses this repo's CLI
+```
+
+npm links each folder, so edits here show at once. The next plain `npm install` in the
+project puts the published versions back.
 
 ## Licence
 

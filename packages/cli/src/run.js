@@ -21,9 +21,16 @@ export function output(cmd, args, {cwd, env} = {}) {
 export function serve(cmd, args, {cwd, env} = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {cwd, env, stdio: "inherit"});
-    const stop = () => child.kill("SIGINT");
-    process.on("SIGINT", stop);
+    // Ctrl-C, a closed terminal or a kill stops the server too, not only this process.
+    const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
+    const stop = (signal) => child.kill(signal);
+    for (const s of signals) process.on(s, stop);
     child.on("error", reject);
-    child.on("exit", (code) => { process.off("SIGINT", stop); resolve(code ?? 0); });
+    child.on("exit", (code) => { for (const s of signals) process.off(s, stop); resolve(code ?? 0); });
   });
+}
+
+/** Start a command and leave it running (opening a browser). */
+export function spawnDetached(cmd, args) {
+  spawn(cmd, args, {stdio: "ignore", detached: true}).on("error", () => {}).unref();
 }

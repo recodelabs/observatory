@@ -71,11 +71,39 @@ export default {
 | Command | What it does |
 |---|---|
 | `observatory new <name> [--dir DIR]` | Copies the template to `sites/<name>` and prints the config entry to add |
-| `observatory dev <site> [--local] [--pull] [preview options…]` | Framework's preview, with DuckDB 2.0 and `DATA` set. Data comes from the cached warehouse (pulled if there is none): `--pull` refreshes it, `--local` uses the warehouse's `local` copy. Other options, such as `--port 3000 --host 0.0.0.0`, go to `observable preview` |
+| `observatory dev <site> [--local] [--pull] [--no-edit] [preview options…]` | Framework's preview, with DuckDB 2.0 and `DATA` set, and the page editor beside it (see below; `--no-edit` for the preview alone). Data comes from the cached warehouse (pulled if there is none): `--pull` refreshes it, `--local` uses the warehouse's `local` copy. Other options, such as `--port 3000 --host 0.0.0.0`, go to `observable preview` |
 | `observatory pull [<site>…]` | Copies the sites' warehouses from R2 to `~/.cache/observatory/warehouses/` |
 | `observatory build [<site>…] [--local]` | Pulls, clears Framework's cached loader outputs, builds, and adds brotli copies of `.wasm` files. All sites when none are named |
 | `observatory deploy [<site>…] [--local] [--skip-build] [--dry-run] [--prune] [--no-worker]` | Builds and uploads each site. Then, in `cloudflare.worker`, applies the D1 migrations of `cloudflare.d1` (with `--dry-run`, lists them) and runs `wrangler deploy` |
 | `observatory check` | Checks the config and each site's Framework config; prints each site's access, warehouse, bucket folder and nested sites |
+
+## Editing pages with `dev`
+
+`observatory dev <site>` runs two servers and opens the first:
+
+```
+== uganda: edit at http://127.0.0.1:3001/ (the preview is http://127.0.0.1:3000/)
+```
+
+- **The editor** lists the site's pages (the `.md` files in its source root, skipping
+  `_`- and `.`-names, `node_modules` and symlinks, as Framework does) and opens one with its
+  Markdown on the left and the preview of that page on the right.
+- **Typing saves.** A pause in typing, or Ctrl/Cmd-S, writes the file to disk. The preview
+  watches the files and redraws the page, with its data and charts.
+- **Your own editor works too.** The preview follows any change to the files. If a file
+  changes on disk while it's open in the browser editor, the browser editor stops saving and
+  offers to load the new version, so neither overwrites the other.
+- **Committing is up to you**, with git. The editor's page list shows which pages have
+  changes git hasn't committed.
+
+The preview gets the port you pass (`--port`) or the first free one from 3000; the editor
+takes the next free one. The editor listens on 127.0.0.1 only. Because other websites
+open in the same browser can still send requests to localhost, each save must carry this run's
+random token in a header, from this server's own page, for this server's host. Only the
+site's existing `.md` pages can be read or written.
+
+The hosted editor in the gate (`/_obs/edit/`) is for small fixes on the live site. It
+commits each save to GitHub; see the gate's README.
 
 ## The gate
 
