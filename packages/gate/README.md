@@ -38,7 +38,8 @@ The sign-in, sign-up and Settings pages use the look of Framework's light theme 
 white cards, Source Serif 4 headings, Framework's table style), so they match the dashboards.
 `brand.title` is the heading on every page, with the page's name under it (except on the
 sign-in page, where the form is the whole page); `brand.accent` changes the link colour (Framework's
-blue when unset) and `brand.logo` adds an image above the title.
+blue when unset) and `brand.logo` adds an image above the title. The gate serves the
+Observatory logo at `/_obs/observatory.svg`, so `logo: "/_obs/observatory.svg"` shows it.
 
 ## The account panel
 
