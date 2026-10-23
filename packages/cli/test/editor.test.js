@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
+import {chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import {request} from "node:http";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -96,5 +96,20 @@ test("doesn't follow a page swapped for a symlink, and reports a missing file in
   rmSync(join(root, "districts/kampala.md"));
   writeFileSync(join(root, "districts/kampala.md"), "# Kampala\n");
   // The editor keeps running after a request fails.
+  assert.equal((await fetch(base + "/")).status, 200);
+});
+
+test("answers a folder it can't read instead of stopping", async () => {
+  mkdirSync(join(root, "locked"));
+  writeFileSync(join(root, "locked", "x.md"), "x");
+  chmodSync(join(root, "locked"), 0o000);
+  try {
+    const res = await fetch(base + "/");
+    assert.equal(res.status, 500);
+    assert.match(await res.text(), /Couldn.t read the site.s files/);
+  } finally {
+    chmodSync(join(root, "locked"), 0o755);
+    rmSync(join(root, "locked"), {recursive: true});
+  }
   assert.equal((await fetch(base + "/")).status, 200);
 });

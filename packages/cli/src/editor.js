@@ -160,7 +160,7 @@ text.addEventListener("keydown", (e) => {
 });
 document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); } });
 document.getElementById("pages").addEventListener("change", (e) => { location.href = e.target.value; });
-addEventListener("beforeunload", (e) => { if (text.value !== saved) e.preventDefault(); });
+addEventListener("beforeunload", (e) => { if (timer || saving || text.value !== saved) e.preventDefault(); });
 `;
 
 /**
@@ -217,6 +217,18 @@ ${escape(text)}</textarea><iframe src="${escape(src)}" title="Preview of ${escap
   const json = (res, status, body) => send(res, status, JSON.stringify(body), "application/json");
 
   const server = createServer((req, res) => {
+    // A file error anywhere (a folder that can't be read, a page deleted while listing) is
+    // answered, not thrown out of the server.
+    try {
+      handle(req, res);
+    } catch (e) {
+      if (res.headersSent) return res.destroy();
+      if (req.method === "POST") return json(res, 500, {error: `couldn't read the site's files (${e.code ?? e.message})`});
+      send(res, 500, doc("Error", `<div class="shell"><h1>Couldn't read the site's files</h1><p>${escape(e.code ?? e.message)}</p></div>`));
+    }
+  });
+
+  function handle(req, res) {
     if (!hosts.has(req.headers.host ?? "")) return send(res, 421, "Wrong host");
     const url = new URL(req.url, here);
     if (req.method === "GET" && url.pathname === "/") return send(res, 200, list());
@@ -267,7 +279,7 @@ ${escape(text)}</textarea><iframe src="${escape(src)}" title="Preview of ${escap
       return;
     }
     send(res, 404, "Not found");
-  });
+  }
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", () => resolve(server));
