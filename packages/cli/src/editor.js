@@ -8,9 +8,9 @@
 // Origin, when sent, must be this server's. Only the site's existing .md pages can be read or
 // written; anything else is refused, whatever its spelling.
 import {createHash, randomBytes} from "node:crypto";
-import {lstatSync, readdirSync, readFileSync, writeFileSync} from "node:fs";
+import {closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, readdirSync, readSync, realpathSync, writeSync} from "node:fs";
 import {createServer} from "node:http";
-import {join, relative, sep} from "node:path";
+import {dirname, join, relative, sep} from "node:path";
 import {spawnSync} from "node:child_process";
 
 const MAX_BYTES = 1024 * 1024;
@@ -34,6 +34,33 @@ export function pages(root) {
     }
   })(root);
   return out;
+}
+
+/**
+ * Open a page's file for reading and writing, checked again at the moment of use: its folder
+ * must still resolve inside `root` and the file itself must be a regular file, not a symlink
+ * (O_NOFOLLOW). Returns {fd, text}; the caller closes fd.
+ */
+function openPage(root, page) {
+  const file = join(root, page);
+  const top = realpathSync(root);
+  const dir = realpathSync(dirname(file));
+  if (dir !== top && !dir.startsWith(top + sep)) throw Object.assign(new Error("outside the site"), {status: 404});
+  const fd = openSync(file, constants.O_RDWR | constants.O_NOFOLLOW);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw Object.assign(new Error("not a file"), {status: 404});
+    const buf = Buffer.alloc(st.size);
+    for (let off = 0; off < st.size;) {
+      const n = readSync(fd, buf, off, st.size - off, off);
+      if (!n) break;
+      off += n;
+    }
+    return {fd, text: buf.toString("utf8")};
+  } catch (e) {
+    closeSync(fd);
+    throw e;
+  }
 }
 
 /** Where Framework's preview shows a page: index.md is /, dir/index.md is /dir/. */
@@ -96,13 +123,14 @@ const doc = (title, body) => `<!doctype html><html lang="en"><head><meta charset
 const SCRIPT = `
 const text = document.getElementById("text"), status = document.getElementById("status");
 const {token, page} = document.body.dataset;
-let base = document.body.dataset.base, timer = null, saving = false, again = false, stopped = false;
+let base = document.body.dataset.base, timer = null, saving = false, again = false, stopped = false, saved = text.value;
 const show = (cls, msg, reload) => {
   status.className = "status " + cls; status.textContent = msg;
   if (reload) { const b = document.createElement("button"); b.textContent = "Load it"; b.onclick = () => { stopped = false; location.reload(); }; status.append(b); }
 };
 async function save() {
   clearTimeout(timer);
+  timer = null;
   if (stopped) return;
   if (saving) { again = true; return; }
   saving = true;
@@ -110,12 +138,14 @@ async function save() {
     do {
       again = false;
       show("saving", "Saving…");
+      const sent = text.value;
       const res = await fetch("/save/" + page, {method: "POST", headers: {"content-type": "application/json", "x-observatory-token": token},
-        body: JSON.stringify({text: text.value, base})});
+        body: JSON.stringify({text: sent, base})});
       const body = await res.json().catch(() => ({}));
       if (res.status === 409) { stopped = true; show("err", "The file changed on disk, so typing here no longer saves.", true); return; }
       if (!res.ok) throw new Error(body.error || res.status);
       base = body.hash;
+      saved = sent;
     } while (again);
     show("", "Saved to disk");
   } catch (e) {
@@ -130,7 +160,7 @@ text.addEventListener("keydown", (e) => {
 });
 document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); } });
 document.getElementById("pages").addEventListener("change", (e) => { location.href = e.target.value; });
-addEventListener("beforeunload", (e) => { if (timer || saving || stopped) e.preventDefault(); });
+addEventListener("beforeunload", (e) => { if (text.value !== saved) e.preventDefault(); });
 `;
 
 /**
@@ -164,7 +194,8 @@ export function startEditor({name, root, previewUrl, port}) {
   }
 
   function editor(page) {
-    const text = readFileSync(join(root, page), "utf8");
+    const {fd, text} = openPage(root, page);
+    closeSync(fd);
     const options = pages(root).map((p) => `<option value="${escape(editPath(p))}"${p === page ? " selected" : ""}>${escape(p)}</option>`).join("");
     const src = previewUrl.replace(/\/$/, "") + previewPath(page);
     // A textarea drops one newline straight after its start tag, so one goes in to keep a file's
@@ -191,7 +222,14 @@ ${escape(text)}</textarea><iframe src="${escape(src)}" title="Preview of ${escap
     if (req.method === "GET" && url.pathname === "/") return send(res, 200, list());
     if (req.method === "GET" && url.pathname.startsWith("/edit/")) {
       const page = pageOf(url.pathname.slice("/edit/".length));
-      return page ? send(res, 200, editor(page)) : send(res, 404, doc("Not found", `<div class="shell"><h1>No such page</h1><p><a href="/">All pages</a></p></div>`));
+      if (page) {
+        try {
+          return send(res, 200, editor(page));
+        } catch (e) {
+          return send(res, 500, doc("Error", `<div class="shell"><h1>Couldn't open ${escape(page)}</h1><p>${escape(e.code ?? e.message)}</p><p><a href="/">All pages</a></p></div>`));
+        }
+      }
+      return send(res, 404, doc("Not found", `<div class="shell"><h1>No such page</h1><p><a href="/">All pages</a></p></div>`));
     }
     if (req.method === "POST" && url.pathname.startsWith("/save/")) {
       if (req.headers["x-observatory-token"] !== token) return json(res, 403, {error: "bad token"});
@@ -206,11 +244,25 @@ ${escape(text)}</textarea><iframe src="${escape(src)}" title="Preview of ${escap
         try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return json(res, 400, {error: "bad request"}); }
         if (typeof body?.text !== "string" || typeof body.base !== "string") return json(res, 400, {error: "bad request"});
         if (Buffer.byteLength(body.text) > MAX_BYTES) return json(res, 413, {error: "over 1 MB"});
-        const file = join(root, page);
-        const current = readFileSync(file, "utf8");
-        if (hash(current) !== body.base) return json(res, 409, {error: "changed on disk", hash: hash(current)});
-        if (body.text !== current) writeFileSync(file, body.text);
-        json(res, 200, {hash: hash(body.text)});
+        // The file is checked again now, after the body arrived, and written through the
+        // descriptor that check opened.
+        let fd;
+        try {
+          if (!pages(root).includes(page)) return json(res, 404, {error: "no such page"});
+          let current;
+          ({fd, text: current} = openPage(root, page));
+          if (hash(current) !== body.base) return json(res, 409, {error: "changed on disk", hash: hash(current)});
+          if (body.text !== current) {
+            const out = Buffer.from(body.text, "utf8");
+            ftruncateSync(fd, 0);
+            for (let off = 0; off < out.length;) off += writeSync(fd, out, off, out.length - off, off);
+          }
+          json(res, 200, {hash: hash(body.text)});
+        } catch (e) {
+          json(res, e.status ?? 500, {error: e.status ? "no such page" : `couldn't write the file (${e.code ?? e.message})`});
+        } finally {
+          if (fd !== undefined) closeSync(fd);
+        }
       });
       return;
     }

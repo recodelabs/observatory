@@ -143,12 +143,13 @@ export async function dev([name, ...rest], opts) {
   }
   // The editor beside the preview: the preview on a port we know (the one asked for, or a free
   // one from 3000), the editor on the next free one; the browser opens the editor.
-  const asked = rest.indexOf("--port");
-  const previewPort = asked >= 0 ? Number(rest[asked + 1]) : await freePort(3000);
+  const askedPort = option(rest, "--port");
+  const previewPort = askedPort !== null ? Number(askedPort) : await freePort(3000);
+  if (!Number.isInteger(previewPort) || previewPort < 1 || previewPort > 65535) throw new Error(`--port: a port number (got ${askedPort})`);
   const editorPort = await freePort(previewPort + 1);
-  const host = rest.includes("--host") ? rest[rest.indexOf("--host") + 1] : "127.0.0.1";
-  const previewUrl = `http://${host === "0.0.0.0" ? "127.0.0.1" : host}:${previewPort}/`;
-  const args = [fw.bin, "preview", ...rest, ...(asked >= 0 ? [] : ["--port", String(previewPort)])];
+  const host = option(rest, "--host") ?? "127.0.0.1";
+  const previewUrl = `http://${host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host}:${previewPort}/`;
+  const args = [fw.bin, "preview", ...rest, ...(askedPort !== null ? [] : ["--port", String(previewPort)])];
   const wantsOpen = !rest.includes("--no-open");
   if (wantsOpen) args.push("--no-open");
   const editor = await startEditor({name: site.name, root: await siteRoot(site.dir), previewUrl, port: editorPort});
@@ -160,6 +161,15 @@ export async function dev([name, ...rest], opts) {
   } finally {
     editor.close();
   }
+}
+
+/** A preview option's value, given as `--name value` or `--name=value`, or null. */
+export function option(args, name) {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === name) return args[i + 1] ?? null;
+    if (args[i].startsWith(name + "=")) return args[i].slice(name.length + 1);
+  }
+  return null;
 }
 
 /**

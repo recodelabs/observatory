@@ -4,7 +4,7 @@ import {request} from "node:http";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {after, before, test} from "node:test";
-import {freePort} from "../src/commands.js";
+import {freePort, option} from "../src/commands.js";
 import {pages, previewPath, startEditor} from "../src/editor.js";
 
 let root, server, base, token;
@@ -78,4 +78,23 @@ test("won't overwrite a change made on disk by another editor", async () => {
   const res = await save("index", {text: "# Mine\n", base: b});
   assert.equal(res.status, 409);
   assert.equal(readFileSync(join(root, "index.md"), "utf8"), "# Home, from another editor\n");
+});
+
+test("reads --port and --host in either form", () => {
+  assert.equal(option(["--port", "4100"], "--port"), "4100");
+  assert.equal(option(["--port=4100", "--host=0.0.0.0"], "--port"), "4100");
+  assert.equal(option(["--port=4100", "--host=0.0.0.0"], "--host"), "0.0.0.0");
+  assert.equal(option(["--no-open"], "--port"), null);
+});
+
+test("doesn't follow a page swapped for a symlink, and reports a missing file instead of failing", async () => {
+  const b = await baseOf("districts/kampala");
+  rmSync(join(root, "districts/kampala.md"));
+  symlinkSync(join(tmpdir(), "obs-edit-outside.md"), join(root, "districts/kampala.md"));
+  assert.equal((await save("districts/kampala", {text: "pwned\n", base: b})).status, 404);
+  assert.equal(readFileSync(join(tmpdir(), "obs-edit-outside.md"), "utf8"), "outside\n");
+  rmSync(join(root, "districts/kampala.md"));
+  writeFileSync(join(root, "districts/kampala.md"), "# Kampala\n");
+  // The editor keeps running after a request fails.
+  assert.equal((await fetch(base + "/")).status, 200);
 });
