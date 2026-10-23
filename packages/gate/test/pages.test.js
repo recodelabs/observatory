@@ -1,8 +1,24 @@
 import {env} from "cloudflare:workers";
 import {beforeAll, describe, it, expect, vi} from "vitest";
-import {putSite, signUp, setStatus, get, post, NAV, BRAND} from "./helpers.js";
+import {createApp} from "../src/index.js";
+import {putSite, signUp, setStatus, get, post, NAV, BRAND, CONFIG} from "./helpers.js";
 
 beforeAll(() => putSite(env, {"index.html": "<h1>home</h1>"}));
+
+describe("logo", () => {
+  it("the gate serves the Observatory logo to anyone, cached", async () => {
+    const res = await get("/_obs/observatory.svg");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
+    expect(await res.text()).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="[\d ]+">.*<\/svg>$/s);
+  });
+  it("brand.logo shows above the title", async () => {
+    const withLogo = createApp({...CONFIG, brand: {title: BRAND, logo: "/_obs/observatory.svg"}});
+    const html = await (await withLogo.fetch(new Request("http://example.com/_obs/login", {headers: NAV}), env)).text();
+    expect(html).toContain('<img class="logo" src="/_obs/observatory.svg" alt=""><h1>');
+  });
+});
 
 describe("login page", () => {
   it("renders with brand title and the next field", async () => {

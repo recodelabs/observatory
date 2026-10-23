@@ -6,6 +6,7 @@ import {serveFromR2, notFound} from "./serve.js";
 import {createAuth} from "./auth.js";
 import {readWho, SessionUnavailable} from "./session.js";
 import {obsPages} from "./pages/index.js";
+import {OBSERVATORY_LOGO} from "./logo.js";
 import {page, html, escape} from "./pages/layout.js";
 
 /** Local hostnames `wrangler dev` answers on; never redirected to the canonical host. */
@@ -66,6 +67,11 @@ export function createApp(rawConfig) {
     const url = new URL(c.req.url);
     return new Response(null, {status: 301, headers: {location: "/_obs/" + url.pathname.slice("/_door/".length) + url.search}});
   });
+
+  // The Observatory logo, for brand.logo: "/_obs/observatory.svg". Served before the session
+  // lookup below, since it's the same for everyone.
+  app.get("/_obs/observatory.svg", () => new Response(OBSERVATORY_LOGO,
+    {headers: {"content-type": "image/svg+xml", "cache-control": "public, max-age=86400"}}));
 
   app.use("/_obs/*", async (c, next) => {
     try {
