@@ -23,7 +23,7 @@ nav.top{display:flex;justify-content:space-between;align-items:center;gap:.5rem 
   font:14px var(--sans-serif);color:var(--theme-foreground-muted)}
 nav.top .who{display:flex;gap:.25rem .75rem;align-items:center;flex-wrap:wrap;min-width:0}nav.top .email{min-width:0;overflow-wrap:anywhere}
 h1,h2,h3{color:var(--theme-foreground-alt);font-weight:700;line-height:1.15;margin:0 0 .25rem;text-wrap:balance}
-h1{font-size:34px}h1 a[href]{color:inherit}h1 a[href]:hover{text-decoration:none}
+h1{font-size:34px;margin-bottom:1.5rem}h1:has(+h2){margin-bottom:.25rem}h1 a[href]{color:inherit}h1 a[href]:hover{text-decoration:none}
 h1+h2{color:var(--theme-foreground);font-size:20px;font-style:italic;font-weight:400;margin-bottom:1.5rem}
 h3{font:700 14px/1.3 var(--sans-serif);color:var(--theme-foreground);margin:0 0 .75rem}
 .logo{display:block;height:32px;margin-bottom:1rem}
