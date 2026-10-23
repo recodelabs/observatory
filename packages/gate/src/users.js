@@ -77,18 +77,35 @@ export async function addSites(d1, userId, sites, by) {
 }
 
 /**
- * Make an account with an unconfirmed address safe to hand to whoever owns that address: end its
- * sessions and remove its password and sign-in accounts (with their Keycloak claims), in one
- * batch. Anyone can sign up with someone else's address, so until it is confirmed, the account's
- * credentials may belong to someone else. What is left can only be signed into with an emailed
- * link, which confirms the address.
+ * Replace an account whose address isn't confirmed with a new, invited one (active, no password,
+ * a new id), in one D1 batch. Returns the new id.
+ *
+ * Anyone can sign up with someone else's address, so until it is confirmed, the account's
+ * password, sessions and sign-in accounts may be a stranger's. Deleting the old user takes all of
+ * them with it (and its grants). A sign-in already under way when this runs read the old
+ * credentials, but the session it then writes names the old id, which no longer exists: the
+ * insert fails on the foreign key, so it can't land on the new account. The new account can only
+ * be signed into with an emailed link, which confirms the address.
  */
-export async function resetUnconfirmed(d1, userId) {
+// Every delete is conditional on the old account still being unconfirmed, so one confirmed in the
+// meantime is left whole.
+const UNCONFIRMED = `EXISTS (SELECT 1 FROM "user" WHERE "id" = ? AND "emailVerified" = 0)`;
+
+export async function replaceUnconfirmed(d1, old, {name, role}) {
+  const id = crypto.randomUUID().replaceAll("-", "");
+  const now = new Date().toISOString();
   await d1.batch([
-    d1.prepare(`DELETE FROM "session" WHERE "userId" = ?`).bind(userId),
-    d1.prepare(`DELETE FROM "account" WHERE "userId" = ?`).bind(userId),
-    d1.prepare(`DELETE FROM "oidcClaims" WHERE "userId" = ?`).bind(userId)
+    d1.prepare(`DELETE FROM "siteGrant" WHERE "userId" = ? AND ${UNCONFIRMED}`).bind(old.id, old.id),
+    d1.prepare(`DELETE FROM "session" WHERE "userId" = ? AND ${UNCONFIRMED}`).bind(old.id, old.id),
+    d1.prepare(`DELETE FROM "account" WHERE "userId" = ? AND ${UNCONFIRMED}`).bind(old.id, old.id),
+    d1.prepare(`DELETE FROM "oidcClaims" WHERE "userId" = ? AND ${UNCONFIRMED}`).bind(old.id, old.id),
+    d1.prepare(`DELETE FROM "user" WHERE "id" = ? AND "emailVerified" = 0`).bind(old.id),
+    // Only if the delete happened: if the address was confirmed in the meantime, nothing changes.
+    d1.prepare(`INSERT INTO "user" ("id", "email", "name", "emailVerified", "createdAt", "updatedAt", "role", "status")
+      SELECT ?, ?, ?, 0, ?, ?, ?, 'active' WHERE NOT EXISTS (SELECT 1 FROM "user" WHERE "email" = ?)`)
+      .bind(id, old.email, name || old.email, now, now, role, old.email)
   ]);
+  return id;
 }
 
 /** Delete a user with their sessions, sign-in accounts and site grants. */

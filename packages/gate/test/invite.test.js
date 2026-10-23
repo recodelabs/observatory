@@ -109,7 +109,8 @@ describe("invitations", () => {
     // Anyone can sign up with someone else's address; until it is confirmed, the password and
     // sessions may be a stranger's. The invitation must reach only the mailbox's owner.
     const squatter = await signUp("waiting@elsewhere.test");
-    expect((await row("waiting@elsewhere.test")).status).toBe("pending");
+    const before = await row("waiting@elsewhere.test");
+    expect(before.status).toBe("pending");
     await post("/_obs/admin/invite", form({email: "waiting@elsewhere.test", site: "ug", admin: "1"}), {cookie: adminCookie});
     expect((await row("waiting@elsewhere.test")).status).toBe("active");
     expect(await grants("waiting@elsewhere.test")).toEqual(["ug"]);
@@ -117,6 +118,12 @@ describe("invitations", () => {
     expect(old.status).toBe(302);
     expect(old.headers.get("location")).toMatch(/^\/_obs\/login/);
     await expect(signIn("waiting@elsewhere.test")).rejects.toThrow(/sign-in 40/);
+    // The invited account is a new one. A password sign-in that read the old credentials before
+    // the invitation would write its session for the old id, which no longer exists.
+    expect((await row("waiting@elsewhere.test")).id).not.toBe(before.id);
+    const now = new Date().toISOString();
+    await expect(env.DB.prepare(`insert into session (id, expiresAt, token, createdAt, updatedAt, userId) values (?, ?, ?, ?, ?, ?)`)
+      .bind("late", now, "late-token", now, now, before.id).run()).rejects.toThrow(/FOREIGN KEY/i);
     // The owner signs in with the emailed link, which confirms the address.
     const owner = await signInByLink("waiting@elsewhere.test");
     expect((await get("/ug/", {...NAV, cookie: owner})).status).toBe(200);

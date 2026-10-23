@@ -1,7 +1,7 @@
 import {Hono} from "hono";
 import {page, html, escape} from "./layout.js";
 import {csrfToken, checkCsrf} from "./csrf.js";
-import {dbFor, listUsers, setStatus, setRole, deleteUser, getUser, getUserByEmail, createInvitedUser, setSites, addSites, resetUnconfirmed} from "../users.js";
+import {dbFor, listUsers, setStatus, setRole, deleteUser, getUser, getUserByEmail, createInvitedUser, setSites, addSites, replaceUnconfirmed} from "../users.js";
 import {isAdmin, statusOf, holds} from "../access.js";
 import {sendMail, MailError} from "../mail.js";
 
@@ -77,7 +77,7 @@ ${sites.length ? `<p class="muted">"Can see" lists the sites you have opened to 
 });
 
 // Invite: create the account (active, no password) or find the existing one (an unconfirmed one
-// is reset first), open the ticked sites to it, and email a link to the sign-in page. The sign-in link itself is sent when they
+// is replaced), open the ticked sites to it, and email a link to the sign-in page. The sign-in link itself is sent when they
 // ask for it there: magic links last minutes, and an invitation may wait days.
 admin.post("/admin/invite", async (c) => {
   const config = c.get("config");
@@ -96,9 +96,12 @@ admin.post("/admin/invite", async (c) => {
     user = await getUserByEmail(db, email);
   } else {
     // Someone may have signed up with this address without owning it: an account whose address
-    // isn't confirmed loses its sessions and credentials before it gets anything, so only the
-    // person who reads the invitation's mailbox can sign into it.
-    if (!user.emailVerified) await resetUnconfirmed(c.env.DB, user.id);
+    // isn't confirmed is replaced by a new invited one before it gets anything (users.js), so only
+    // the person who reads the invitation's mailbox can sign in.
+    if (!user.emailVerified) {
+      await replaceUnconfirmed(c.env.DB, user, {name, role: makeAdmin ? "admin" : "user"});
+      user = await getUserByEmail(db, email);
+    }
     if (user.status === "pending") await setStatus(db, user.id, "active");
     if (makeAdmin) await setRole(db, user.id, "admin");
   }
