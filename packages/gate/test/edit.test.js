@@ -191,6 +191,16 @@ describe("the editor", () => {
     expect(html).toMatch(/id="editor" data-dirty>/);
     expect(await (await page("/_obs/edit/ug/coverage", admin)).text()).not.toContain("data-dirty");
   });
+  it("keeps the draft when the file was deleted after it was opened", async () => {
+    const sha = await shaOf(await (await page("/_obs/edit/ug/coverage", admin)).text());
+    github.files.delete(`${FOLDER}/coverage.md`);
+    const res = await save("/_obs/edit/ug/coverage", {text: "# Still mine\n", sha, note: "n", csrf: adminCsrf});
+    expect(res.status).toBe(404);
+    const html = await res.text();
+    expect(html).toContain("\n# Still mine\n</textarea>");
+    expect(html).toMatch(/id="editor" data-dirty>/);
+    expect(github.requests.some((r) => r.method === "PUT")).toBe(false);
+  });
   it("lists and saves Markdown at the top of the repo", async () => {
     const top = createApp({...EDIT_CONFIG, repo: {...EDIT_CONFIG.repo, root: ""},
       sites: CONFIG.sites.map((s) => s.name === "ug" ? {...s, dir: "", root: ""} : s)});

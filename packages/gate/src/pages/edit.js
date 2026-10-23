@@ -172,7 +172,8 @@ edit.post("/edit/:site/:page{.+}", async (c) => {
   try {
     const gh = await connect(config.repo, c.env);
     found = await lookup(c, gh);
-    if (!found) return failure(c, config, new GitHubError("There's no Markdown file for this page in the repo, so it can't be saved here.", 404));
+    // Deleted or moved since it was opened, or never on the list: refused, and the draft is kept.
+    if (!found) throw new GitHubError("There's no Markdown file for this page in the repo any more.", 404);
     const here = editUrl(found.site, found.file.path);
     if (form.sha === found.file.sha && (await gh.read(found.file.sha)) === text) return c.redirect(`${here}?ok=unchanged`, 302);
     const commit = await gh.save(found.path, {text, sha: form.sha,
