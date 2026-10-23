@@ -21,7 +21,7 @@ a[href]{color:var(--theme-foreground-focus);text-decoration:none}a[href]:hover{t
 :focus-visible{outline:2px solid var(--theme-foreground-focus);outline-offset:2px}
 nav.top{display:flex;justify-content:space-between;align-items:center;gap:.5rem 1rem;flex-wrap:wrap;margin-bottom:2.5rem;
   font:14px var(--sans-serif);color:var(--theme-foreground-muted)}
-nav.top .who{display:flex;gap:.75rem;align-items:center}
+nav.top .who{display:flex;gap:.25rem .75rem;align-items:center;flex-wrap:wrap;min-width:0}nav.top .email{min-width:0;overflow-wrap:anywhere}
 h1,h2,h3{color:var(--theme-foreground-alt);font-weight:700;line-height:1.15;margin:0 0 .25rem;text-wrap:balance}
 h1{font-size:34px}h1 a[href]{color:inherit}h1 a[href]:hover{text-decoration:none}
 h1+h2{color:var(--theme-foreground);font-size:20px;font-style:italic;font-weight:400;margin-bottom:1.5rem}
@@ -65,7 +65,7 @@ th,td{padding:.55rem .9rem .55rem 0}th:last-child,td:last-child{padding-right:0}
 thead tr{border-bottom:1px solid var(--theme-foreground-fainter)}tbody tr:not(:last-child){border-bottom:1px solid var(--theme-foreground-faintest)}
 td .sub{display:block;margin-top:.15rem;color:var(--theme-foreground-muted)}
 td.date{white-space:nowrap}
-td form.sites{display:flex;gap:.1rem .9rem;flex-wrap:wrap;align-items:center}td form.sites label.check{margin:0;font-size:13px}
+td form.sites{display:flex;gap:.1rem .9rem;flex-wrap:wrap;align-items:center}td form.sites label.check{margin:0;font-size:13px}td form.sites .saved{font-size:12px}
 td .acts{display:flex;gap:.25rem .9rem;flex-wrap:wrap}td .acts button{font-size:13px}
 .status{white-space:nowrap}.status::before{content:"";display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.4rem;
   background:var(--theme-foreground-fainter);vertical-align:.05em}

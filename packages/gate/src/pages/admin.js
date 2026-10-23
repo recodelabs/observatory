@@ -33,6 +33,22 @@ function chosenSites(config, form) {
   return grantable(config).map((s) => s.name).filter((n) => ticked.includes(n));
 }
 
+// Saves a row's sites without leaving the page, so focus and a half-filled invitation stay put.
+// The answer is a redirect back to Settings (opaque here); anything else means it wasn't saved.
+const SAVE_SITES = `<script>
+for (const form of document.querySelectorAll("form.sites")) form.addEventListener("change", async () => {
+  const status = form.querySelector(".saved");
+  status.textContent = "Saving…";
+  try {
+    const res = await fetch(form.action, {method: "POST", body: new FormData(form), redirect: "manual", credentials: "same-origin"});
+    if (res.type !== "opaqueredirect" && !res.ok) throw new Error(String(res.status));
+    status.textContent = "Saved";
+  } catch {
+    status.textContent = "Not saved. Reload the page and try again.";
+  }
+});
+</script>`;
+
 const MESSAGES = {done: "Done.", disabled: "That account is disabled. Enable it first, then invite them again.", invited: "Invitation sent.", "invited-nomail": "The account is ready, but the invitation email could not be sent. Ask them to sign in with an email link from the sign-in page."};
 
 admin.get("/admin", async (c) => {
@@ -55,10 +71,10 @@ admin.get("/admin", async (c) => {
       !self ? btn("delete", u.id, "Delete", "link danger") : ""
     ].join("");
     const how = [u.providers.join(", ") || "email link", u.groups.length ? u.groups.join(" ") : ""].filter(Boolean).join(" · ");
-    // Ticking a site saves at once; without scripts, the Save button does it.
+    // Ticking a site saves at once, in the background (SAVE_SITES); without scripts, the Save button does it.
     const siteForm = sites.length ? `<td><form method="post" action="/_obs/admin/sites" class="sites"><input type="hidden" name="userId" value="${escape(u.id)}">${csrfField}`
-      + sites.map((x) => `<label class="check"><input type="checkbox" name="site" value="${escape(x.name)}"${u.sites.includes(x.name) ? " checked" : ""} onchange="this.form.requestSubmit()"> ${escape(x.name)}</label>`).join("")
-      + `<noscript><button type="submit" class="link">Save</button></noscript></form></td>` : "";
+      + sites.map((x) => `<label class="check"><input type="checkbox" name="site" value="${escape(x.name)}"${u.sites.includes(x.name) ? " checked" : ""}> ${escape(x.name)}</label>`).join("")
+      + `<span class="saved muted" role="status"></span><noscript><button type="submit" class="link">Save</button></noscript></form></td>` : "";
     return `<tr><td>${escape(u.email)}${self ? ` <span class="muted">(you)</span>` : ""}<span class="sub">${escape(u.name)}${u.emailVerified ? "" : " · email not confirmed"} · ${escape(how)}</span></td>`
       + `<td><span class="status ${escape(status)}">${escape(status)}</span></td><td>${escape(role)}</td>${siteForm}`
       + `<td class="date">${fmt(u.createdAt)}</td><td class="date">${fmt(u.lastSignIn)}</td><td><div class="acts">${actions}</div></td></tr>`;
@@ -73,7 +89,7 @@ admin.get("/admin", async (c) => {
   <span class="muted">They get an email with a link to sign in; no password is needed.${sites.length ? " Public sites need no invitation." : ""}</span></div>
 </form></div>`;
   const body = `${invite}<div class="card"><h3>Users</h3><div class="scroll"><table><thead><tr><th>User</th><th>Status</th><th>Role</th>${sites.length ? "<th>Can see</th>" : ""}<th>Created</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-${sites.length ? `<p class="muted">"Can see" lists the sites you have opened to each person. People also get in through the site's own rules (for example a Keycloak group or an email domain), and admins see every site.</p>` : ""}</div>`;
+${sites.length ? `${SAVE_SITES}<p class="muted">"Can see" lists the sites you have opened to each person. People also get in through the site's own rules (for example a Keycloak group or an email domain), and admins see every site.</p>` : ""}</div>`;
   const ok = c.req.query("ok");
   return html(c, page({config, title: "Settings", body, wide: true, account: {email: s.user.email}, message: ok ? (MESSAGES[ok] ?? MESSAGES.done) : null}));
 });
