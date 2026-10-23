@@ -39,7 +39,10 @@ login.get("/login", (c) => {
   if (s?.user && statusOf(c.get("config"), s.user, s.provider) === "active") return c.redirect(next, 302);
   if (s?.user) return c.redirect("/_obs/pending", 302);
   const error = c.req.query("error") ? "Sign-in didn't work. Try again, or ask an administrator." : null;
-  return html(c, loginForm({config: c.get("config"), env: c.env, next, error}));
+  // An invitation links here with the invited address filled in (pages/admin.js).
+  const email = String(c.req.query("email") ?? "").trim().slice(0, 320);
+  const message = email ? "Choose \"Email me a sign-in link\" to sign in without a password." : null;
+  return html(c, loginForm({config: c.get("config"), env: c.env, next, email, message, error}));
 });
 
 login.post("/login", async (c) => {

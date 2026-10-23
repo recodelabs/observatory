@@ -9,5 +9,9 @@ button{margin-top:16px;padding:10px 16px;border:0;border-radius:6px;background:v
 button.quiet{background:transparent;color:var(--accent);padding:6px 0}
 .msg{padding:10px 12px;border-radius:6px;margin-bottom:12px;background:#eef3ff}.msg.err{background:#fde8e6;color:var(--err)}
 table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px;border-bottom:1px solid #eee;vertical-align:top}
+h2{font-size:16px;margin:24px 0 8px}h2:first-child{margin-top:0}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row>div{flex:1 1 200px}
+.checks{display:flex;gap:4px 16px;flex-wrap:wrap}label.check{display:inline-flex;gap:6px;align-items:center;margin:8px 0 0;color:var(--fg);font-size:14px}
+td form.sites{display:flex;gap:2px 10px;flex-wrap:wrap;align-items:center}td form.sites label.check{margin:0;font-size:13px}
 td form{display:inline}td button{margin:0 4px 0 0;padding:4px 8px;font-size:13px}.muted{color:var(--muted)}
 `;

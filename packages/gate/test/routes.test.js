@@ -140,20 +140,28 @@ describe("routing", () => {
 });
 
 describe("account bar", () => {
-  it("shows the signed-in user and sign-out on gated and public pages; admins also get Manage users", async () => {
+  it("shows the signed-in user and sign-out on gated and public pages; admins also get Settings", async () => {
     const user = await signIn("p@example.org");
     let html = await (await get("/", {...NAV, cookie: user})).text();
     expect(html).toContain('id="obs-account"');
     expect(html).toContain("p@example.org");
     expect(html).toContain('action="/_obs/signout"');
-    expect(html).not.toContain("Manage users");
+    expect(html).not.toContain("Settings");
+    expect(html).toContain('class="obs-floating"');   // no Framework sidebar on this page
     const about = await get("/about", {...NAV, cookie: user});
     expect(await about.text()).toContain('id="obs-account"');
     expect(about.headers.get("cache-control")).toBe("private, no-store");
 
     const admin = await signIn("admin@example.org");
     html = await (await get("/", {...NAV, cookie: admin})).text();
-    expect(html).toContain('href="/_obs/admin"');
+    expect(html).toContain('<a href="/_obs/admin">Settings</a>');
+  });
+  it("goes at the foot of Framework's sidebar when the page has one", async () => {
+    await putSite(env, {"sidebar.html": '<body><nav id="observablehq-sidebar"><ol><li>Home</li></ol></nav><main>page</main></body>'});
+    const user = await signIn("p@example.org");
+    const html = await (await get("/sidebar", {...NAV, cookie: user})).text();
+    expect(html).toMatch(/<ol><li>Home<\/li><\/ol><style>[\s\S]*<div id="obs-account" class="obs-in-sidebar">[\s\S]*<\/div><\/nav><main>/);
+    expect(html.match(/id="obs-account"/g)).toHaveLength(1);
   });
   it("sends a signed-in user the whole page even when the browser has a copy", async () => {
     const anon = await get("/about", NAV);

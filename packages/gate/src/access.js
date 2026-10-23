@@ -13,7 +13,7 @@
 //   1. a path whose rule is "disabled" is refused to everyone, admins too (404);
 //   2. a public path is served, without looking at the session;
 //   3. no session → sign in; a disabled user → refused; a user who isn't active → the pending page;
-//   4. an admin is allowed;
+//   4. an admin is allowed, and so is a user an admin has granted the site (the admin page);
 //   5. anyone else is checked against the rule.
 
 /** Glob → RegExp. `*` matches within a segment, `**` across segments. */
@@ -136,9 +136,11 @@ export function describeRule(rule) {
 /**
  * The decision for one request: {kind: "serve", visibility} | {kind: "notfound"} |
  * {kind: "login"} | {kind: "pending"} | {kind: "refused", reason}. `who` is null without a
- * session, else {user, claims, provider} from session.js.
+ * session, else {user, claims, provider, grants} from session.js. `site` is the site the path
+ * belongs to: a user an admin has granted it (`grants`) is let in whatever its rule, unless the
+ * path is disabled.
  */
-export function decide(config, rule, who) {
+export function decide(config, rule, who, site = null) {
   if (rule === "disabled") return {kind: "notfound"};
   if (rule === "public") return {kind: "serve", visibility: "public"};
   if (!who?.user) return {kind: "login"};
@@ -147,6 +149,7 @@ export function decide(config, rule, who) {
   if (status === "disabled") return {kind: "refused", reason: "disabled"};
   if (status !== "active") return {kind: "pending"};
   const admin = isAdmin(config, who);
-  if (admin || allows(rule, {user, claims, admin})) return {kind: "serve", visibility: "private"};
+  const granted = Boolean(site && who.grants?.has(site.name));
+  if (admin || granted || allows(rule, {user, claims, admin})) return {kind: "serve", visibility: "private"};
   return {kind: "refused", reason: "rule"};
 }

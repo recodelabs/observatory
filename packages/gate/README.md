@@ -32,16 +32,30 @@ public page, so those pages load for anonymous visitors. It holds no project cod
 The site's own modules (`_import/…`), data (`_file/…`) and search index
 (`_observablehq/minisearch.json`) follow the site's rule.
 
-## The account bar
+## The account panel
 
-On every dashboard page a signed-in user opens, the gate adds a small box in the bottom-right
-corner with:
+On every dashboard page a signed-in user opens, the gate adds a small panel with:
 - their email, and the Keycloak realm if they signed in with one;
-- a "Sign out" button;
-- for admins, a "Manage users" link to `/_obs/admin`.
+- for admins, "Settings": the user manager at `/_obs/admin`;
+- a "Sign out" button.
 
-It is added as the page is served, so builds don't change. A page with the bar is sent as
-`private, no-store`. Anonymous visitors to public pages don't get it.
+On a Framework page it sits at the foot of the sidebar, and opens and closes with it. A page
+without the sidebar gets it in the bottom-left corner. It is added as the page is served, so
+builds don't change. A page with the panel is sent as `private, no-store`. Anonymous visitors
+to public pages don't get it.
+
+## Inviting people
+
+On the user manager an admin can invite someone by email and tick the sites they can see, or
+make them an admin. The gate creates the account (active, with no password), opens the ticked
+sites to it, and emails a link to the sign-in page with their address filled in. They sign in
+with an emailed link; following it confirms the address.
+
+The sites on offer are the ones whose `access` is a list of conditions; public and
+`signed-in` sites need no invitation. Each user's row has the same checkboxes, so an admin can
+open or close sites later. These grants (D1 table `siteGrant`) add to a site's own rule:
+whoever meets the rule still gets in. A disabled path stays closed, and a disabled user stays
+out, whatever they were granted.
 
 ## Who is who
 
@@ -74,6 +88,7 @@ login page gets a "Sign in with …" button for it.
     are closed.
   - **Keycloak setup:** `keycloak/oidc-client.sh` sets up a realm's client, mappers and
     groups.
+- **People an admin invited** see the sites the admin ticked (see "Inviting people").
 - **Admins** see every site and use the admin page. An admin is someone who meets a
   condition in `auth.admins`, or was made an admin on the admin page. A disabled user is
   never an admin. The first person to sign up is *not* made an admin (doorman did that);

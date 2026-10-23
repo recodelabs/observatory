@@ -1,10 +1,11 @@
-# Publish the CLI, components and gate to npm (public) when a release tag (v0.1.0 …) is pushed. The
-# packages' versions must match the tag. npm trusted publishing: each package on npmjs.com names
+# Publish to npm (public) when a release tag is pushed:
+#   v0.1.0 …                       the CLI, components and gate together, all at the tag's version;
+#   cli-v… components-v… gate-v…   that one package, at the tag's version. npm trusted publishing: each package on npmjs.com names
 # this repo and workflow as its trusted publisher, so no token is stored here.
 name: publish
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "cli-v*", "components-v*", "gate-v*"]
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -22,9 +23,15 @@ jobs:
       - run: npm ci
       - run: npm test --workspaces --if-present
       - name: Check versions
+        id: packages
         run: |
-          for p in cli components gate; do
+          case "$GITHUB_REF_NAME" in
+            v*) packages="cli components gate"; want="$GITHUB_REF_NAME" ;;
+            *-v*) packages="${GITHUB_REF_NAME%%-v*}"; want="v${GITHUB_REF_NAME#*-v}" ;;
+          esac
+          for p in $packages; do
             v=$(node -p "require('./packages/$p/package.json').version")
-            [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "packages/$p is $v, tag is $GITHUB_REF_NAME"; exit 1; }
+            [ "v$v" = "$want" ] || { echo "packages/$p is $v, tag is $GITHUB_REF_NAME"; exit 1; }
           done
-      - run: npm publish --workspace packages/cli --workspace packages/components --workspace packages/gate --provenance
+          echo "workspaces=$(for p in $packages; do printf -- '--workspace packages/%s ' "$p"; done)" >> "$GITHUB_OUTPUT"
+      - run: npm publish ${{ steps.packages.outputs.workspaces }} --provenance

@@ -29,7 +29,8 @@ export async function readSession(auth, request) {
 }
 
 /**
- * The signed-in user as the access rules see them: {user, session, provider, claims}, or null.
+ * The signed-in user as the access rules see them: {user, session, provider, claims, grants}, or
+ * null. `grants` is the set of site names an admin has opened to the user on the admin page.
  *
  * `provider` is how the session was signed in: "email", or an OIDC provider id; an OIDC session
  * also names its provider account (`session.subject`, auth.js). `claims` maps that one provider
@@ -47,7 +48,19 @@ export async function readSession(auth, request) {
  * Of several requests that find the claims stale, one refreshes and the others wait for it (up
  * to a few seconds; if it doesn't finish, they're refused rather than served on old claims).
  */
-export async function readWho(auth, config, request, env, {wait = sleep} = {}) {
+export async function readWho(auth, config, request, env, opts = {}) {
+  const who = await readWhoFromProvider(auth, config, request, env, opts);
+  if (!who) return null;
+  // The sites an admin has opened to this user (siteGrant, the admin page).
+  try {
+    const rows = await auth.db.selectFrom("siteGrant").select("site").where("userId", "=", who.user.id).execute();
+    return {...who, grants: new Set(rows.map((r) => r.site))};
+  } catch (err) {
+    throw new SessionUnavailable(err);
+  }
+}
+
+async function readWhoFromProvider(auth, config, request, env, {wait = sleep} = {}) {
   const got = await readSession(auth, request);
   if (!got) return null;
   const provider = got.session.provider || "email";
