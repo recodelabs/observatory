@@ -11,7 +11,7 @@ beforeAll(() => putSite(env, {
   "404.html": "<h1>nope</h1>", "_file/data/x.abc.parquet": new Uint8Array([1,2,3,4,5,6,7,8,9,10]),
   "_observablehq/client.js": "console.log(1)",
   "_npm/e.wasm": new Uint8Array([0, 97, 115, 109]), "_npm/e.wasm.br": new Uint8Array([9, 9]),
-  "ug/_npm/x.js": "x"
+  "ug/_npm/x.js": "x", "ug/_import/components/map.js": "export {}"
 }));
 
 describe("serveFromR2", () => {
@@ -51,10 +51,13 @@ describe("serveFromR2", () => {
     expect(ranged.status).toBe(206);
     expect(ranged.headers.get("content-encoding")).toBeNull();
   });
-  it("cache-control: gated files are revalidated every time; public hashed assets are long-lived, in nested sites too", async () => {
+  it("cache-control: gated pages and data are revalidated every time; library code and public hashed assets are long-lived, in nested sites too", async () => {
     expect((await serve("about", "private")).headers.get("cache-control")).toBe("private, no-cache");
     expect((await serve("about", "public")).headers.get("cache-control")).toBe("public, max-age=300");
-    expect((await serve("_observablehq/client.js", "private")).headers.get("cache-control")).toBe("private, no-cache");
+    expect((await serve("_observablehq/client.js", "private")).headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect((await serve("ug/_npm/x.js", "private")).headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect((await serve("_file/data/x.abc.parquet", "private")).headers.get("cache-control")).toBe("private, no-cache");
+    expect((await serve("ug/_import/components/map.js", "private")).headers.get("cache-control")).toBe("private, no-cache");
     expect((await serve("_observablehq/client.js", "public")).headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     expect((await serve("ug/_npm/x.js", "public")).headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
   });
