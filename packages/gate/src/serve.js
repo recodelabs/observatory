@@ -11,6 +11,9 @@ const TYPES = {
 };
 // Framework's hashed files, at a site's root or in a nested site's folder.
 const IMMUTABLE = /(^|\/)(_npm|_import|_observablehq|_file)\//;
+// Library code: npm packages and Framework's runtime, the same on every site and named by content
+// hash. It holds no site data, so a gated site may let the browser keep it.
+const LIBRARY = /(^|\/)(_npm|_observablehq)\//;
 
 function contentType(key) {
   const ext = key.slice(key.lastIndexOf(".") + 1).toLowerCase();
@@ -57,10 +60,13 @@ export async function serveFromR2(bucket, prefix, request, path, visibility, not
     // browser must not reuse the anonymous copy once it has one.
     if (key.endsWith(".html")) headers.set("vary", "cookie");
     if (brotli) headers.set("content-encoding", "br");
-    // A gated file must go back to the gate every time (no-cache: revalidated, a cheap 304),
-    // so the browser can't reuse it after its user signs out or loses access. Public files
-    // keep the long cache for Framework's hashed assets.
-    headers.set("cache-control", visibility !== "public" ? "private, no-cache"
+    // A gated page or data file must go back to the gate every time (no-cache: revalidated, a
+    // 304), so the browser can't reuse it after its user signs out or loses access. Library code
+    // is the exception: it has no site data, and revalidating ~50 modules on every page load made
+    // gated pages slow, so the browser keeps it (private: no shared cache). Public files keep the
+    // long cache for Framework's hashed assets.
+    headers.set("cache-control", visibility !== "public"
+      ? (LIBRARY.test(key) ? "private, max-age=31536000, immutable" : "private, no-cache")
       : IMMUTABLE.test(key) ? "public, max-age=31536000, immutable" : "public, max-age=300");
     const hasBody = "body" in obj && obj.body;
     const partial = ranged && obj.range && hasBody;
