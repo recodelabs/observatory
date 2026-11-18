@@ -10,6 +10,7 @@ site's own names, formatters and colours where a neighbouring page already defin
 - Helpers at the top
 - Filters
 - Linked filters
+- A chart as a range filter
 - Querying for the selection
 - Key figures
 - Charts
@@ -123,6 +124,44 @@ const combos = toRows(await sql`SELECT year, region, programme, count(*) AS n FR
 `matching(combos, filters)` returns the rows that match every filter ("All" matches
 anything). `checkboxSelect(options, {label})` is a pull-down with checkboxes for choosing
 several values.
+
+## A chart as a range filter
+
+`brushX` from the components package lets the reader drag across a chart to pick a range of
+its x axis; the range then filters the map and table below. Use it on a histogram of the
+measure the page is about (a ratio, a coverage), not on every chart: a page with one or two
+of these is easy to read, and a page where every chart filters is not. A chart has no
+filter unless the page calls `brushX` on it.
+
+```js
+import {brushX, within} from "@recodelabs/observatory-components";
+const histogram = brushX(Plot.plot({
+  width: Math.max(320, width - 48), height: 320,
+  x: {label: "Campaign target as % of the routine target →", domain: [20, 200]},
+  y: {label: "Number of districts", grid: true},
+  marks: [
+    Plot.rectY(units.filter((d) => d.ratio != null),
+      Plot.binX({y: "count"}, {x: (d) => Math.max(20, Math.min(d.ratio, 200 - 1e-6)), thresholds: d3.range(20, 201, 5)})),
+    Plot.ruleX([100]),
+    Plot.ruleY([0])
+  ]
+}));
+const range = Generators.input(histogram);   // [low, high], or null for everything
+```
+
+```js
+// In its own cell: min and max say the end bars hold everything beyond the axis.
+const shown = units.filter((d) => within(range, d.ratio, {min: 20, max: 200}));
+```
+
+- Under the chart, say what the selection is and how many units it holds
+  ("38 of 495 districts have a target that is 80% to 125% of the routine target"), and say
+  "Showing all 495" when there is none.
+- Say once, in the card's note, that the chart can be dragged.
+- Keep the map in a different cell from the chart, so a redraw of the chart does not rebuild
+  the map.
+- `brushX(plot, {enabled: false})` leaves the chart plain, with a range of `null`.
+- The package's README lists the options. It needs components 0.3 or later.
 
 ## Querying for the selection
 
