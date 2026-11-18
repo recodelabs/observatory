@@ -1,8 +1,8 @@
 {
   "name": "@recodelabs/observatory-components",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
-  "description": "Observable Framework components for Observatory sites: admin-unit maps on PMTiles, linked filters, choropleth classes",
+  "description": "Observable Framework components for Observatory sites: admin-unit maps on PMTiles, linked filters, a range filter on a chart, choropleth classes",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -17,7 +17,8 @@
     ".": "./src/index.js",
     "./admin-map": "./src/admin-map.js",
     "./classify": "./src/classify.js",
-    "./filters": "./src/filters.js"
+    "./filters": "./src/filters.js",
+    "./brush": "./src/brush.js"
   },
   "files": [
     "NOTICE",
@@ -27,6 +28,8 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "d3-brush": "^3.0.0",
+    "d3-selection": "^3.0.0",
     "maplibre-gl": "^5.6.0",
     "pmtiles": "^4.3.0"
   },

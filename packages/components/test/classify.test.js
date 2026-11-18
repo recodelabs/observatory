@@ -21,3 +21,18 @@ test("filters: matching and available ignore All", () => {
   assert.deepEqual(matching(combos, {a: "x", b: "All"}), [combos[0], combos[2]]);
   assert.deepEqual([...available(combos, "b", {a: "x"})], [1, 3]);
 });
+
+test("within: no range is everything; ends of the axis are open when named", async () => {
+  const {within} = await import("../src/brush.js");
+  assert.equal(within(null, 5), true);
+  assert.equal(within(null, null), true);
+  assert.equal(within([20, 80], null), false);
+  assert.equal(within([20, 80], NaN), false);
+  assert.equal(within([20, 80], 20), true);
+  assert.equal(within([20, 80], 80), true);
+  assert.equal(within([20, 80], 81), false);
+  assert.equal(within([20, 80], 5), false);
+  assert.equal(within([20, 80], 5, {min: 20, max: 200}), true);
+  assert.equal(within([150, 200], 340, {min: 20, max: 200}), true);
+  assert.equal(within([150, 199], 340, {min: 20, max: 200}), false);
+});

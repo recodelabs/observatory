@@ -63,3 +63,42 @@ These link several `Inputs.select` controls:
 - `available(combos, key, filters)` returns the set of `key` values those rows have.
 - `checkboxSelect(options, {label, format, value, emptyLabel, fullLabel})` is a closed
   pull-down with checkboxes. It works with `Generators.input`.
+
+## A range filter on a chart
+
+`brushX` turns an Observable Plot chart into a filter: the reader drags across it to pick a
+range of the x axis. A chart has no filter unless the page calls `brushX` on it.
+
+```js
+import {brushX, within} from "@recodelabs/observatory-components";
+
+const histogram = brushX(Plot.plot({
+  x: {label: "Campaign target as % of the routine target →", domain: [20, 200]},
+  marks: [Plot.rectY(units, Plot.binX({y: "count"}, {x: "ratio"})), Plot.ruleY([0])]
+}));
+const range = Generators.input(histogram);   // [low, high], or null for everything
+```
+
+```js
+const shown = units.filter((d) => within(range, d.ratio, {min: 20, max: 200}));
+```
+
+The reader drags to select, drags the selection to move it, drags an edge to resize it, and
+clicks outside it or on "Clear" to remove it. Bars outside the selection are faded.
+
+- `brushX(plot, {enabled, value, round, marks, color, clear})` returns the chart it was
+  given. `value` is `[low, high]` in x values, or `null`. Each finished drag sends an `input`
+  event. `clear()` removes the selection.
+  - `enabled: false` leaves the chart as it is, with a value of `null`. Cells that read the
+    range keep working, so a page can switch the filter on and off with a checkbox.
+  - `value` is a selection to start with. Pass the current range when the chart is redrawn
+    to keep it.
+  - `round` is applied to each end. By default numbers are rounded to whole values.
+  - `marks` is the CSS selector of the marks to fade (default: the chart's bars).
+  - `clear` is the text of the control that removes the selection, or `null` for none.
+- `within(range, value, {min, max})` tests a value against the range. Name `min` and `max`
+  when the first and last bars also hold everything beyond the axis: a range that reaches
+  that end then has no limit on that side.
+
+The x scale must be continuous (numbers or dates). Rows of facets (`fy`) share one
+selection. Columns of facets (`fx`) are not supported.
