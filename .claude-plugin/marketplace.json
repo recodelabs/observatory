@@ -1,0 +1,11 @@
+{
+  "name": "observatory",
+  "owner": {"name": "Recode Labs"},
+  "plugins": [
+    {
+      "name": "observatory",
+      "source": "./",
+      "description": "Skills for working on Observatory dashboards with Claude"
+    }
+  ]
+}

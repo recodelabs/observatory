@@ -25,6 +25,21 @@ the login Worker, which it absorbs as `packages/gate`.
 | `packages/cli` | v0.3: `observatory new`, `dev` (with a page editor beside the preview), `pull`, `build`, `deploy`, `check`; DuckDB 2.0 swap; template site. See its README. |
 | `packages/components` | v0.2: `adminMap` (MapLibre + PMTiles), choropleth classes, linked filters. See its README. |
 
+## Writing dashboards with Claude
+
+This repo is also a Claude Code plugin. Its `dashboards` skill tells Claude how an Observatory
+site is put together, where a calculation belongs (analytics SQL, a loader or the page), how
+pages are laid out, the chart preferences, and how to check a page in the preview. Install it
+once, then open your project's folder in Claude Code (or the Code tab of Claude Desktop) and
+ask for the page you want:
+
+```
+/plugin install observatory --marketplace recodelabs/observatory
+```
+
+The skill is in `skills/dashboards/`. The chart, colour, number and wording preferences are a
+section of its `SKILL.md`: change them there when a preference changes.
+
 ## Develop
 
 Needs Node 22 or later (`.node-version`).

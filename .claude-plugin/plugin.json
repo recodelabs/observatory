@@ -1,0 +1,8 @@
+{
+  "name": "observatory",
+  "description": "Skills for working on Observatory dashboards with Claude",
+  "version": "0.1.0",
+  "homepage": "https://github.com/recodelabs/observatory",
+  "repository": "https://github.com/recodelabs/observatory",
+  "license": "Apache-2.0"
+}
