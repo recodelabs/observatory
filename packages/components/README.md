@@ -27,9 +27,11 @@ map.setValues(population, {thresholds: breaks, colors: colorsFor(breaks), label:
 |---|---|---|
 | `pmtiles` | (required) | an ArrayBuffer of the tiles |
 | `layers` | `{units: "lgas", regions: "states", country: "country"}` | the tile layers. These are fhir-pipes' names, used for every country |
+| `levels` | none | `{2: "admin2", 3: "admin3"}`: the tile layer of each admin level, for a map that switches between levels. Replaces `layers.units` and `layers.regions` |
 | `regionField` | `"admin1_name"` | the unit property that names its region |
 | `bounds` | the PMTiles header's | `[[west, south], [east, north]]` to start at |
 | `choropleth` | `true` | `false` outlines the units, and a click selects one (a registry view) |
+| `noValue` | `"#e5e7eb"` | the colour of a unit with no value. Use a darker grey when the palette's palest class is close to it |
 | `labels` | `[]` | `{id, name, lon, lat}` points to label, such as region names |
 | `height` | `520` | in pixels |
 | `basemap` | OpenStreetMap | `{tiles, attribution}` raster tiles, or `null` |
@@ -38,8 +40,11 @@ Methods on the returned element:
 
 - `setValues(Map(id → number), {thresholds, colors, label, format, legendFormat, describe})`
   colours the units and draws a legend. `describe(id, value)` returns the tooltip's HTML.
+  With `levels`, add `level` to choose the admin level drawn: its units are coloured and the
+  level above is drawn as thicker lines. The layer ids stay `unit-fill` and `unit-line`.
 - `setRegion(name | null)` shows one region's units.
-- `fit(bounds?)` zooms to the bounds given, or back to the start.
+- `fit(bounds?)` zooms to the bounds given, or back to the start. The map fits again when its
+  container changes size, until the reader moves it.
 - `map` is the MapLibre map.
 - `value` is the clicked unit's `{id, properties}`. Each click sends an `input` event, so
   `Generators.input(map)` works.

@@ -52,6 +52,9 @@ Place it in a card: `<div class="card" style="padding: 0; overflow: hidden"><div
 - **`layers`** names the tile layers for units, regions and country. The default is
   `{units: "lgas", regions: "states", country: "country"}`. Look at how the site's other
   pages set it, or read the layer names from the tiles, before assuming.
+- **`levels`** is for a map that switches between admin levels, with one tile layer per
+  level: `adminMap({pmtiles, levels: {2: "admin2", 3: "admin3"}})`, then
+  `setValues(values, {level: 3, …})`. Needs components 0.4.
 - **Build the map once and update it.** Creating the map in a cell that reads a filter
   rebuilds it on every change, and the reader loses their zoom.
 - `setRegion(name | null)` shows one region's units; `fit(bounds?)` zooms; `map.map` is the
